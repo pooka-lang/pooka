@@ -1,0 +1,27 @@
+name = "pooka"
+version = "0.1.0"
+description = "The Pooka programming language toolchain"
+licences = ["Apache-2.0"]
+repository = { type = "github", user = "pooka-lang", repo = "pooka" }
+links = [
+  { title = "Issues", href = "https://github.com/pooka-lang/pooka/issues" },
+  { title = "Standard library", href = "https://github.com/pooka-lang/pooka_stdlib" },
+]
+gleam = ">= 1.19.0"
+target = "erlang"
+
+[dependencies]
+envoy = ">= 1.2.0 and < 2.0.0"
+gleam_stdlib = ">= 1.0.0 and < 2.0.0"
+argv = ">= 1.1.0 and < 2.0.0"
+simplifile = ">= 2.7.0 and < 3.0.0"
+filepath = ">= 1.1.2 and < 2.0.0"
+tom = ">= 2.1.0 and < 3.0.0"
+gleam_json = ">= 3.1.0 and < 4.0.0"
+mork = ">= 1.12.3 and < 2.0.0"
+gleam_time = ">= 1.11.0 and < 2.0.0"
+
+[dev_dependencies]
+pprint = ">= 1.0.6 and < 2.0.0"
+gleeunit = ">= 1.0.0 and < 2.0.0"
+birdie = ">= 2.0.2 and < 3.0.0"

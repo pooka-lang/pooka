@@ -1,0 +1,11 @@
+*.beam
+*.ez
+/build
+erl_crash.dump
+.DS_Store
+
+/pooka
+/artifacts
+/downloaded
+/release-inputs
+/release-assets
