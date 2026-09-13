@@ -1,0 +1,30 @@
+---
+version: 2.0.2
+title: lex diagnostic: block comment
+file: ./test/lexer_snapshot_test.gleam
+test_name: block_comment_diagnostic_test
+---
+Source:
+module main
+
+/* A block
+   comment. */
+main() {
+  Nil
+}
+
+---
+error: block comments are not supported
+  ╭─ src/main.pooka:3:1
+  │
+3 │ /* A block
+  │ ─┬
+  │  ╰─ a block comment starts here
+  ╰─
+
+Pooka only has line comments.
+
+help: Start each line of the comment with `//` instead.
+
+Found 1 error.
+

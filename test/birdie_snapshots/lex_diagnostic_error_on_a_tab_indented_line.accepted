@@ -1,0 +1,28 @@
+---
+version: 2.0.2
+title: lex diagnostic: error on a tab-indented line
+file: ./test/lexer_snapshot_test.gleam
+test_name: lex_error_on_tabbed_line_test
+---
+Source:
+module main
+
+main() {
+	let x = 0b2
+}
+
+---
+error: invalid number
+  ╭─ src/main.pooka:4:10
+  │
+4 │     let x = 0b2
+  │             ─┬─
+  │              ╰─ `2` is not a binary digit
+  ╰─
+
+`0b2` is not a valid number.
+
+note: Binary numbers may only contain the digits `0` and `1`.
+
+Found 1 error.
+

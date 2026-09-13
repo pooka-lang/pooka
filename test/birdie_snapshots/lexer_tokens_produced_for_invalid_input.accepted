@@ -1,0 +1,64 @@
+---
+version: 2.0.2
+title: lexer: tokens produced for invalid input
+file: ./test/lexer_snapshot_test.gleam
+test_name: invalid_input_tokens_test
+---
+[
+  Lexeme(
+    Let,
+    Span(
+      Position(1, 1, 0),
+      Position(1, 4, 3),
+    ),
+  ),
+  Lexeme(
+    Name("x"),
+    Span(
+      Position(1, 5, 4),
+      Position(1, 6, 5),
+    ),
+  ),
+  Lexeme(
+    Equal,
+    Span(
+      Position(1, 7, 6),
+      Position(1, 8, 7),
+    ),
+  ),
+  Lexeme(
+    Int("0b12"),
+    Span(
+      Position(1, 9, 8),
+      Position(1, 13, 12),
+    ),
+  ),
+  Lexeme(
+    Plus,
+    Span(
+      Position(1, 14, 13),
+      Position(1, 15, 14),
+    ),
+  ),
+  Lexeme(
+    Unexpected("@"),
+    Span(
+      Position(1, 16, 15),
+      Position(1, 17, 16),
+    ),
+  ),
+  Lexeme(
+    String("open"),
+    Span(
+      Position(1, 18, 17),
+      Position(1, 23, 22),
+    ),
+  ),
+  Lexeme(
+    EndOfFile,
+    Span(
+      Position(1, 23, 22),
+      Position(1, 23, 22),
+    ),
+  ),
+]

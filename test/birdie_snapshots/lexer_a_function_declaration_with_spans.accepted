@@ -1,0 +1,134 @@
+---
+version: 2.0.2
+title: lexer: a function declaration with spans
+file: ./test/lexer_snapshot_test.gleam
+test_name: function_declaration_tokens_test
+---
+[
+  Lexeme(
+    Name("add"),
+    Span(
+      Position(1, 1, 0),
+      Position(1, 4, 3),
+    ),
+  ),
+  Lexeme(
+    LeftParen,
+    Span(
+      Position(1, 4, 3),
+      Position(1, 5, 4),
+    ),
+  ),
+  Lexeme(
+    Name("a"),
+    Span(
+      Position(1, 5, 4),
+      Position(1, 6, 5),
+    ),
+  ),
+  Lexeme(
+    Colon,
+    Span(
+      Position(1, 6, 5),
+      Position(1, 7, 6),
+    ),
+  ),
+  Lexeme(
+    UpperName("Int"),
+    Span(
+      Position(1, 8, 7),
+      Position(1, 11, 10),
+    ),
+  ),
+  Lexeme(
+    Comma,
+    Span(
+      Position(1, 11, 10),
+      Position(1, 12, 11),
+    ),
+  ),
+  Lexeme(
+    Name("b"),
+    Span(
+      Position(1, 13, 12),
+      Position(1, 14, 13),
+    ),
+  ),
+  Lexeme(
+    Colon,
+    Span(
+      Position(1, 14, 13),
+      Position(1, 15, 14),
+    ),
+  ),
+  Lexeme(
+    UpperName("Int"),
+    Span(
+      Position(1, 16, 15),
+      Position(1, 19, 18),
+    ),
+  ),
+  Lexeme(
+    RightParen,
+    Span(
+      Position(1, 19, 18),
+      Position(1, 20, 19),
+    ),
+  ),
+  Lexeme(
+    Colon,
+    Span(
+      Position(1, 20, 19),
+      Position(1, 21, 20),
+    ),
+  ),
+  Lexeme(
+    UpperName("Int"),
+    Span(
+      Position(1, 22, 21),
+      Position(1, 25, 24),
+    ),
+  ),
+  Lexeme(
+    LeftBrace,
+    Span(
+      Position(1, 26, 25),
+      Position(1, 27, 26),
+    ),
+  ),
+  Lexeme(
+    Name("a"),
+    Span(
+      Position(2, 3, 29),
+      Position(2, 4, 30),
+    ),
+  ),
+  Lexeme(
+    Plus,
+    Span(
+      Position(2, 5, 31),
+      Position(2, 6, 32),
+    ),
+  ),
+  Lexeme(
+    Name("b"),
+    Span(
+      Position(2, 7, 33),
+      Position(2, 8, 34),
+    ),
+  ),
+  Lexeme(
+    RightBrace,
+    Span(
+      Position(3, 1, 35),
+      Position(3, 2, 36),
+    ),
+  ),
+  Lexeme(
+    EndOfFile,
+    Span(
+      Position(4, 1, 37),
+      Position(4, 1, 37),
+    ),
+  ),
+]

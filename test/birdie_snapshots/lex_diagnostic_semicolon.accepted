@@ -1,0 +1,26 @@
+---
+version: 2.0.2
+title: lex diagnostic: semicolon
+file: ./test/lexer_snapshot_test.gleam
+test_name: semicolon_diagnostic_test
+---
+Source:
+module main
+
+main() {
+  let x = 1;
+}
+
+---
+error: unexpected semicolon
+  ╭─ src/main.pooka:4:12
+  │
+4 │   let x = 1;
+  │            ┬
+  │            ╰─ Pooka does not use semicolons
+  ╰─
+
+Remove the `;`.
+
+Found 1 error.
+

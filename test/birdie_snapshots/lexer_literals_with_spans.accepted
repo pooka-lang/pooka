@@ -1,0 +1,176 @@
+---
+version: 2.0.2
+title: lexer: literals with spans
+file: ./test/lexer_snapshot_test.gleam
+test_name: literal_tokens_test
+---
+[
+  Lexeme(
+    LeftSquare,
+    Span(
+      Position(1, 1, 0),
+      Position(1, 2, 1),
+    ),
+  ),
+  Lexeme(
+    Int("1_000"),
+    Span(
+      Position(1, 2, 1),
+      Position(1, 7, 6),
+    ),
+  ),
+  Lexeme(
+    Comma,
+    Span(
+      Position(1, 7, 6),
+      Position(1, 8, 7),
+    ),
+  ),
+  Lexeme(
+    Int("0xFF"),
+    Span(
+      Position(1, 9, 8),
+      Position(1, 13, 12),
+    ),
+  ),
+  Lexeme(
+    Comma,
+    Span(
+      Position(1, 13, 12),
+      Position(1, 14, 13),
+    ),
+  ),
+  Lexeme(
+    Float("2.5e3"),
+    Span(
+      Position(1, 15, 14),
+      Position(1, 20, 19),
+    ),
+  ),
+  Lexeme(
+    Comma,
+    Span(
+      Position(1, 20, 19),
+      Position(1, 21, 20),
+    ),
+  ),
+  Lexeme(
+    String("Καλημέρα"),
+    Span(
+      Position(1, 22, 21),
+      Position(1, 32, 39),
+    ),
+  ),
+  Lexeme(
+    Comma,
+    Span(
+      Position(1, 32, 39),
+      Position(1, 33, 40),
+    ),
+  ),
+  Lexeme(
+    TrueLiteral,
+    Span(
+      Position(1, 34, 41),
+      Position(1, 38, 45),
+    ),
+  ),
+  Lexeme(
+    Comma,
+    Span(
+      Position(1, 38, 45),
+      Position(1, 39, 46),
+    ),
+  ),
+  Lexeme(
+    NilLiteral,
+    Span(
+      Position(1, 40, 47),
+      Position(1, 43, 50),
+    ),
+  ),
+  Lexeme(
+    Comma,
+    Span(
+      Position(1, 43, 50),
+      Position(1, 44, 51),
+    ),
+  ),
+  Lexeme(
+    HashLeftParen,
+    Span(
+      Position(1, 45, 52),
+      Position(1, 47, 54),
+    ),
+  ),
+  Lexeme(
+    Int("1"),
+    Span(
+      Position(1, 47, 54),
+      Position(1, 48, 55),
+    ),
+  ),
+  Lexeme(
+    Comma,
+    Span(
+      Position(1, 48, 55),
+      Position(1, 49, 56),
+    ),
+  ),
+  Lexeme(
+    Int("2"),
+    Span(
+      Position(1, 50, 57),
+      Position(1, 51, 58),
+    ),
+  ),
+  Lexeme(
+    RightParen,
+    Span(
+      Position(1, 51, 58),
+      Position(1, 52, 59),
+    ),
+  ),
+  Lexeme(
+    Comma,
+    Span(
+      Position(1, 52, 59),
+      Position(1, 53, 60),
+    ),
+  ),
+  Lexeme(
+    DoubleLess,
+    Span(
+      Position(1, 54, 61),
+      Position(1, 56, 63),
+    ),
+  ),
+  Lexeme(
+    Int("1"),
+    Span(
+      Position(1, 56, 63),
+      Position(1, 57, 64),
+    ),
+  ),
+  Lexeme(
+    DoubleGreater,
+    Span(
+      Position(1, 57, 64),
+      Position(1, 59, 66),
+    ),
+  ),
+  Lexeme(
+    RightSquare,
+    Span(
+      Position(1, 59, 66),
+      Position(1, 60, 67),
+    ),
+  ),
+  Lexeme(
+    EndOfFile,
+    Span(
+      Position(1, 60, 67),
+      Position(1, 60, 67),
+    ),
+  ),
+]

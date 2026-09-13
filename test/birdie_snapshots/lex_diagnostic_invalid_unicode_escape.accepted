@@ -1,0 +1,28 @@
+---
+version: 2.0.2
+title: lex diagnostic: invalid unicode escape
+file: ./test/lexer_snapshot_test.gleam
+test_name: invalid_unicode_escape_diagnostic_test
+---
+Source:
+module main
+
+main() {
+  "\u{110000}"
+}
+
+---
+error: invalid unicode escape
+  ╭─ src/main.pooka:4:4
+  │
+4 │   "\u{110000}"
+  │    ─────┬────
+  │         ╰─ this is not a Unicode scalar value
+  ╰─
+
+`\u{110000}` is not a valid unicode escape.
+
+help: Write a code point as one to six hexadecimal digits in braces, such as `\u{1F98C}`.
+
+Found 1 error.
+

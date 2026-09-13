@@ -1,0 +1,95 @@
+---
+version: 2.0.2
+title: lex diagnostic: unexpected characters
+file: ./test/lexer_snapshot_test.gleam
+test_name: unexpected_characters_diagnostic_test
+---
+Source:
+module main
+
+main() {
+  let a = 'x'
+  let b = “quoted”
+  let c = a ^ b
+  let d = ~a
+  let e = #x
+  let f = café @@
+}
+
+---
+error: single-quoted string
+  ╭─ src/main.pooka:4:11
+  │
+4 │   let a = 'x'
+  │           ─┬─
+  │            ╰─ strings use double quotes
+  ╰─
+
+Write `"x"` instead.
+
+note: Pooka has no separate character type.
+
+error: typographic quotes
+  ╭─ src/main.pooka:5:11
+  │
+5 │   let b = “quoted”
+  │           ────┬───
+  │               ╰─ these are typographic quotes
+  ╰─
+
+Strings are written with plain double quotes: `"quoted"`.
+
+error: unexpected character
+  ╭─ src/main.pooka:6:13
+  │
+6 │   let c = a ^ b
+  │             ┬
+  │             ╰─ this cannot start any Pooka syntax
+  ╰─
+
+`^` is not valid here.
+
+error: unexpected character
+  ╭─ src/main.pooka:7:11
+  │
+7 │   let d = ~a
+  │           ┬
+  │           ╰─ this cannot start any Pooka syntax
+  ╰─
+
+`~` is not valid here.
+
+error: unexpected `#`
+  ╭─ src/main.pooka:8:11
+  │
+8 │   let e = #x
+  │           ┬
+  │           ╰─ `#` must be followed by `(`
+  ╰─
+
+Tuples are written `#(first, second)`.
+
+error: unexpected character
+  ╭─ src/main.pooka:9:14
+  │
+9 │   let f = café @@
+  │              ┬
+  │              ╰─ not valid outside strings and comments
+  ╰─
+
+`é` cannot be used here.
+
+note: Names may only contain ASCII letters, digits and underscores.
+
+error: unexpected characters
+  ╭─ src/main.pooka:9:16
+  │
+9 │   let f = café @@
+  │                ─┬
+  │                 ╰─ this cannot start any Pooka syntax
+  ╰─
+
+`@@` is not valid here.
+
+Found 7 errors.
+

@@ -1,0 +1,30 @@
+---
+version: 2.0.2
+title: lex diagnostic: invalid escape
+file: ./test/lexer_snapshot_test.gleam
+test_name: invalid_escape_diagnostic_test
+---
+Source:
+module main
+
+main() {
+  "C:\Users"
+}
+
+---
+error: unknown escape sequence
+  ╭─ src/main.pooka:4:6
+  │
+4 │   "C:\Users"
+  │      ─┬
+  │       ╰─ this escape sequence is not recognised
+  ╰─
+
+`\U` is not an escape sequence that Pooka understands.
+
+note: The escape sequences are `\"`, `\\`, `\f`, `\n`, `\r`, `\t` and `\u{...}`.
+
+help: Write `\\` to include a backslash in the string.
+
+Found 1 error.
+

@@ -1,0 +1,71 @@
+---
+version: 2.0.2
+title: lexer: CRLF line endings advance one line each
+file: ./test/lexer_snapshot_test.gleam
+test_name: crlf_tokens_test
+---
+[
+  Lexeme(
+    Let,
+    Span(
+      Position(1, 1, 0),
+      Position(1, 4, 3),
+    ),
+  ),
+  Lexeme(
+    Name("a"),
+    Span(
+      Position(1, 5, 4),
+      Position(1, 6, 5),
+    ),
+  ),
+  Lexeme(
+    Equal,
+    Span(
+      Position(1, 7, 6),
+      Position(1, 8, 7),
+    ),
+  ),
+  Lexeme(
+    Int("1"),
+    Span(
+      Position(1, 9, 8),
+      Position(1, 10, 9),
+    ),
+  ),
+  Lexeme(
+    Let,
+    Span(
+      Position(2, 1, 11),
+      Position(2, 4, 14),
+    ),
+  ),
+  Lexeme(
+    Name("b"),
+    Span(
+      Position(2, 5, 15),
+      Position(2, 6, 16),
+    ),
+  ),
+  Lexeme(
+    Equal,
+    Span(
+      Position(2, 7, 17),
+      Position(2, 8, 18),
+    ),
+  ),
+  Lexeme(
+    Int("2"),
+    Span(
+      Position(2, 9, 19),
+      Position(2, 10, 20),
+    ),
+  ),
+  Lexeme(
+    EndOfFile,
+    Span(
+      Position(3, 1, 22),
+      Position(3, 1, 22),
+    ),
+  ),
+]

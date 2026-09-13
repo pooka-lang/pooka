@@ -1,0 +1,28 @@
+---
+version: 2.0.2
+title: lex diagnostic: unterminated string
+file: ./test/lexer_snapshot_test.gleam
+test_name: unterminated_string_diagnostic_test
+---
+Source:
+module main
+
+main() {
+  let name = "Lucy
+}
+
+---
+error: unterminated string
+  ╭─ src/main.pooka:4:14
+  │
+4 │   let name = "Lucy
+  │              ──┬──
+  │                ╰─ string starts here but never ends
+  ╰─
+
+Expected a closing `"`.
+
+note: Strings end on the line where they start. Write `\n` for a line break.
+
+Found 1 error.
+

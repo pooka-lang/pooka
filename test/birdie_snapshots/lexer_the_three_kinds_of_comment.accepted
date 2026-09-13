@@ -1,0 +1,53 @@
+---
+version: 2.0.2
+title: lexer: the three kinds of comment
+file: ./test/lexer_snapshot_test.gleam
+test_name: comment_tokens_test
+---
+Lexed(
+  [
+    Lexeme(
+      ModuleComment(" Module docs."),
+      Span(
+        Position(1, 1, 0),
+        Position(1, 18, 17),
+      ),
+    ),
+    Lexeme(
+      DocComment(" Item docs."),
+      Span(
+        Position(2, 1, 18),
+        Position(2, 15, 32),
+      ),
+    ),
+    Lexeme(
+      Comment(" Ordinary."),
+      Span(
+        Position(3, 1, 33),
+        Position(3, 13, 45),
+      ),
+    ),
+    Lexeme(
+      Name("x"),
+      Span(
+        Position(4, 1, 46),
+        Position(4, 2, 47),
+      ),
+    ),
+    Lexeme(
+      Comment(" trailing"),
+      Span(
+        Position(4, 3, 48),
+        Position(4, 14, 59),
+      ),
+    ),
+    Lexeme(
+      EndOfFile,
+      Span(
+        Position(5, 1, 60),
+        Position(5, 1, 60),
+      ),
+    ),
+  ],
+  [],
+)

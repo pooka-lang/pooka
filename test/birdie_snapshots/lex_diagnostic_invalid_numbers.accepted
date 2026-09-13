@@ -1,0 +1,93 @@
+---
+version: 2.0.2
+title: lex diagnostic: invalid numbers
+file: ./test/lexer_snapshot_test.gleam
+test_name: invalid_numbers_diagnostic_test
+---
+Source:
+module main
+
+main() {
+  0b102
+  0o9
+  0x
+  1__000
+  1e10
+  12px
+}
+
+---
+error: invalid number
+  ╭─ src/main.pooka:4:3
+  │
+4 │   0b102
+  │   ──┬──
+  │     ╰─ `2` is not a binary digit
+  ╰─
+
+`0b102` is not a valid number.
+
+note: Binary numbers may only contain the digits `0` and `1`.
+
+error: invalid number
+  ╭─ src/main.pooka:5:3
+  │
+5 │   0o9
+  │   ─┬─
+  │    ╰─ `9` is not an octal digit
+  ╰─
+
+`0o9` is not a valid number.
+
+note: Octal numbers may only contain the digits `0` to `7`.
+
+error: invalid number
+  ╭─ src/main.pooka:6:3
+  │
+6 │   0x
+  │   ─┬
+  │    ╰─ this prefix needs digits after it
+  ╰─
+
+`0x` is not a valid number.
+
+help: Write at least one hexadecimal digit, such as `0xFF`.
+
+error: invalid number
+  ╭─ src/main.pooka:7:3
+  │
+7 │   1__000
+  │   ───┬──
+  │      ╰─ `_` must be between two digits
+  ╰─
+
+`1__000` is not a valid number.
+
+help: Use single underscores between digits, as in `1_000_000`.
+
+error: invalid number
+  ╭─ src/main.pooka:8:3
+  │
+8 │   1e10
+  │   ──┬─
+  │     ╰─ an exponent needs a decimal point
+  ╰─
+
+`1e10` is not a valid number.
+
+help: Write the number as a float with a decimal point, such as `1.0e10`.
+
+error: invalid number
+  ╭─ src/main.pooka:9:3
+  │
+9 │   12px
+  │   ──┬─
+  │     ╰─ `px` cannot follow a number
+  ╰─
+
+`12px` is not a valid number.
+
+note: Pooka numbers do not have suffixes or units.
+
+Found 6 errors.
+

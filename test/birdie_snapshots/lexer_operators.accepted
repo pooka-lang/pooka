@@ -1,0 +1,141 @@
+---
+version: 2.0.2
+title: lexer: operators
+file: ./test/lexer_snapshot_test.gleam
+test_name: operator_tokens_test
+---
+[
+  Lexeme(
+    Name("input"),
+    Span(
+      Position(1, 1, 0),
+      Position(1, 6, 5),
+    ),
+  ),
+  Lexeme(
+    Pipe,
+    Span(
+      Position(1, 7, 6),
+      Position(1, 9, 8),
+    ),
+  ),
+  Lexeme(
+    Name("parse"),
+    Span(
+      Position(1, 10, 9),
+      Position(1, 15, 14),
+    ),
+  ),
+  Lexeme(
+    LeftParen,
+    Span(
+      Position(1, 15, 14),
+      Position(1, 16, 15),
+    ),
+  ),
+  Lexeme(
+    RightParen,
+    Span(
+      Position(1, 16, 15),
+      Position(1, 17, 16),
+    ),
+  ),
+  Lexeme(
+    Question,
+    Span(
+      Position(1, 17, 16),
+      Position(1, 18, 17),
+    ),
+  ),
+  Lexeme(
+    DoubleAmpersand,
+    Span(
+      Position(1, 19, 18),
+      Position(1, 21, 20),
+    ),
+  ),
+  Lexeme(
+    Bang,
+    Span(
+      Position(1, 22, 21),
+      Position(1, 23, 22),
+    ),
+  ),
+  Lexeme(
+    Name("done"),
+    Span(
+      Position(1, 23, 22),
+      Position(1, 27, 26),
+    ),
+  ),
+  Lexeme(
+    DoubleBar,
+    Span(
+      Position(1, 28, 27),
+      Position(1, 30, 29),
+    ),
+  ),
+  Lexeme(
+    Name("a"),
+    Span(
+      Position(1, 31, 30),
+      Position(1, 32, 31),
+    ),
+  ),
+  Lexeme(
+    LessEqual,
+    Span(
+      Position(1, 33, 32),
+      Position(1, 35, 34),
+    ),
+  ),
+  Lexeme(
+    Name("b"),
+    Span(
+      Position(1, 36, 35),
+      Position(1, 37, 36),
+    ),
+  ),
+  Lexeme(
+    BangEqual,
+    Span(
+      Position(1, 38, 37),
+      Position(1, 40, 39),
+    ),
+  ),
+  Lexeme(
+    Name("c"),
+    Span(
+      Position(1, 41, 40),
+      Position(1, 42, 41),
+    ),
+  ),
+  Lexeme(
+    Name("count"),
+    Span(
+      Position(2, 1, 42),
+      Position(2, 6, 47),
+    ),
+  ),
+  Lexeme(
+    PlusEqual,
+    Span(
+      Position(2, 7, 48),
+      Position(2, 9, 50),
+    ),
+  ),
+  Lexeme(
+    Int("1"),
+    Span(
+      Position(2, 10, 51),
+      Position(2, 11, 52),
+    ),
+  ),
+  Lexeme(
+    EndOfFile,
+    Span(
+      Position(2, 11, 52),
+      Position(2, 11, 52),
+    ),
+  ),
+]

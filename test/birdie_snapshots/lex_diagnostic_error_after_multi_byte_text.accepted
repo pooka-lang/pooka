@@ -1,0 +1,26 @@
+---
+version: 2.0.2
+title: lex diagnostic: error after multi-byte text
+file: ./test/lexer_snapshot_test.gleam
+test_name: lex_error_after_multibyte_text_test
+---
+Source:
+module main
+
+main() {
+  let s = "Καλημέρα" @
+}
+
+---
+error: unexpected character
+  ╭─ src/main.pooka:4:22
+  │
+4 │   let s = "Καλημέρα" @
+  │                      ┬
+  │                      ╰─ this cannot start any Pooka syntax
+  ╰─
+
+`@` is not valid here.
+
+Found 1 error.
+
