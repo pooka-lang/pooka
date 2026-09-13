@@ -1,0 +1,36 @@
+---
+version: 2.0.2
+title: parse diagnostic: module header with directories
+file: ./test/parser_error_test.gleam
+test_name: module_header_path_rendering_test
+---
+Source:
+module database/pool
+
+---
+error: module declarations do not include directories
+  ╭─ src/main.pooka:1:8
+  │
+1 │ module database/pool
+  │        ──────┬──────
+  │              ╰─ the directories come from the file's location
+  ╰─
+
+Write `module pool`.
+
+note: Imports still use the full path: `import database/pool`.
+
+error: module name does not match its file
+  ╭─ src/main.pooka:1:17
+  │
+1 │ module database/pool
+  │                 ──┬─
+  │                   ╰─ this declares module `pool`
+  ╰─
+
+`src/main.pooka` must declare `module main`.
+
+note: A module is named after its file, without `.pooka`.
+
+Found 2 errors.
+

@@ -1,0 +1,67 @@
+---
+version: 2.0.2
+title: parse diagnostic: external declaration mistakes
+file: ./test/parser_error_test.gleam
+test_name: external_errors_rendering_test
+---
+Source:
+module main
+
+external now() -> Int
+
+external Clock from python "clock" {
+  now(): Int
+  at(zone) -> Int
+}
+
+---
+error: external declarations name a namespace
+  ╭─ src/main.pooka:3:10
+  │
+3 │ external now() -> Int
+  │          ─┬─
+  │           ╰─ expected a namespace name such as `Crypto`
+  ╰─
+
+Foreign functions are grouped under a namespace that names their language and module.
+
+help: Write `external Crypto from erlang "crypto" { strong_rand_bytes(size: Int) -> BitArray }`.
+
+error: unsupported foreign language
+  ╭─ src/main.pooka:5:21
+  │
+5 │ external Clock from python "clock" {
+  │                     ───┬──
+  │                        ╰─ `python` is not a supported language
+  ╰─
+
+The supported languages are `erlang`, `elixir`, `gleam` and `lfe`.
+
+note: Modules written in any other BEAM language can be called with `erlang` and their module atom.
+
+note: Native code is declared with `native Name from "component" { ... }`.
+
+error: external signatures use `->`
+  ╭─ src/main.pooka:6:8
+  │
+6 │   now(): Int
+  │        ┬
+  │        ╰─ expected `->` before the result type
+  ╰─
+
+External signatures are written `name(parameter: Type) -> Result`.
+
+error: missing parameter type
+  ╭─ src/main.pooka:7:6
+  │
+7 │   at(zone) -> Int
+  │      ──┬─
+  │        ╰─ `zone` has no type
+  ╰─
+
+Every parameter of an external signature needs a type.
+
+help: Write `zone: Type`.
+
+Found 4 errors.
+

@@ -1,0 +1,56 @@
+---
+version: 2.0.2
+title: parse diagnostic: several independent errors
+file: ./test/parser_error_test.gleam
+test_name: several_errors_rendering_test
+---
+Source:
+module main
+
+first() {
+  let x =
+}
+
+second() {
+  add(1 2)
+}
+
+third() {
+  let name = "Lucy
+}
+
+---
+error: unexpected `}`
+  ╭─ src/main.pooka:5:1
+  │
+5 │ }
+  │ ┬
+  │ ╰─ an expression should begin here
+  ╰─
+
+Expected an expression, but found `}`.
+
+error: unexpected number
+  ╭─ src/main.pooka:8:9
+  │
+8 │   add(1 2)
+  │         ┬
+  │         ╰─ expected `,` or `)` here
+  ╰─
+
+Expected `,` or `)`, but found the number `2`.
+
+error: unterminated string
+   ╭─ src/main.pooka:12:14
+   │
+12 │   let name = "Lucy
+   │              ──┬──
+   │                ╰─ string starts here but never ends
+   ╰─
+
+Expected a closing `"`.
+
+note: Strings end on the line where they start. Write `\n` for a line break.
+
+Found 3 errors.
+

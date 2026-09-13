@@ -1,0 +1,62 @@
+---
+version: 2.0.2
+title: parse diagnostic: keywords Pooka does not have
+file: ./test/parser_error_test.gleam
+test_name: missing_keyword_rendering_test
+---
+Source:
+module main
+
+first() {
+  return 1
+}
+
+second() {
+  while ready {
+    work()
+  }
+}
+
+third() {
+  if ready { go() }
+}
+
+---
+error: Pooka has no `return`
+  ╭─ src/main.pooka:4:3
+  │
+4 │   return 1
+  │   ───┬──
+  │      ╰─ `return` is not a keyword
+  ╰─
+
+Functions evaluate to their final expression.
+
+help: Remove `return` and make the value the last expression of the block.
+
+error: Pooka has no `while`
+  ╭─ src/main.pooka:8:3
+  │
+8 │   while ready {
+  │   ──┬──
+  │     ╰─ `while` is not a keyword
+  ╰─
+
+Repetition uses `loop`.
+
+help: Write `loop { ... }` and leave it with `break`.
+
+error: `if` is only used in match guards
+   ╭─ src/main.pooka:14:3
+   │
+14 │   if ready { go() }
+   │   ─┬
+   │    ╰─ `if` cannot start an expression
+   ╰─
+
+Pooka has no `if` expression; conditional branching uses `match`.
+
+help: Write `match condition { True -> ... False -> ... }`.
+
+Found 3 errors.
+

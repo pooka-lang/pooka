@@ -1,0 +1,133 @@
+---
+version: 2.0.2
+title: parse diagnostic: Pooka rules about declarations
+file: ./test/parser_error_test.gleam
+test_name: pooka_rule_errors_rendering_test
+---
+Source:
+module zoo
+
+pub class Animal {}
+
+class Chimera is Lion, Goat {}
+
+class Point {
+  var x = 0.0
+  be move() {}
+}
+
+interface Printable is Showable {
+  print() -> String { "default" }
+}
+
+actor Worker is Process {}
+
+fn add(a, b) { a + b }
+
+---
+error: module name does not match its file
+  ╭─ src/main.pooka:1:8
+  │
+1 │ module zoo
+  │        ─┬─
+  │         ╰─ this declares module `zoo`
+  ╰─
+
+`src/main.pooka` must declare `module main`.
+
+note: A module is named after its file, without `.pooka`.
+
+error: visibility modifiers do not exist
+  ╭─ src/main.pooka:3:1
+  │
+3 │ pub class Animal {}
+  │ ─┬─
+  │  ╰─ `pub` is not a Pooka keyword
+  ╰─
+
+Ordinary names are public, and a leading `_` makes a declaration private.
+
+error: multiple inheritance is not supported
+  ╭─ src/main.pooka:5:22
+  │
+5 │ class Chimera is Lion, Goat {}
+  │                      ───┬──
+  │                         ╰─ a class can only extend one class
+  ╰─
+
+`Chimera` already extends `Lion`.
+
+help: Describe additional behaviour with interfaces, using `with`.
+
+error: classes cannot contain mutable fields
+  ╭─ src/main.pooka:8:3
+  │
+8 │   var x = 0.0
+  │   ─┬─
+  │    ╰─ `var` is not valid inside a class
+  ╰─
+
+Expected an immutable `let` field, but found `var`.
+
+note: Mutable state belongs in actors.
+
+error: behaviours belong to actors
+  ╭─ src/main.pooka:9:3
+  │
+9 │   be move() {}
+  │   ─┬
+  │    ╰─ `be` is only valid inside an actor
+  ╰─
+
+A `be` behaviour is an asynchronous actor entry point.
+
+help: Remove `be` to declare an ordinary method.
+
+error: interfaces cannot inherit
+   ╭─ src/main.pooka:12:21
+   │
+12 │ interface Printable is Showable {
+   │                     ─┬
+   │                      ╰─ `is` is not allowed on an interface
+   ╰─
+
+Interfaces do not inherit from other interfaces.
+
+help: Let types implement several interfaces instead: `with A, B`.
+
+error: interface methods cannot have bodies
+   ╭─ src/main.pooka:13:21
+   │
+13 │   print() -> String { "default" }
+   │                     ──────┬──────
+   │                           ╰─ this body is not allowed
+   ╰─
+
+Interfaces contain method signatures only.
+
+note: Shared behaviour belongs in ordinary functions or classes.
+
+error: actors cannot inherit
+   ╭─ src/main.pooka:16:14
+   │
+16 │ actor Worker is Process {}
+   │              ─┬
+   │               ╰─ `is` is not allowed on an actor
+   ╰─
+
+Actors do not participate in class inheritance.
+
+help: Actors may implement interfaces with `with`.
+
+error: named functions do not use `fn`
+   ╭─ src/main.pooka:18:1
+   │
+18 │ fn add(a, b) { a + b }
+   │ ─┬
+   │  ╰─ `fn` is only for anonymous functions and function types
+   ╰─
+
+Named functions are written `name(parameters) { ... }`.
+
+Found 9 errors.
+

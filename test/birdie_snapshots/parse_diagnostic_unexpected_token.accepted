@@ -1,0 +1,26 @@
+---
+version: 2.0.2
+title: parse diagnostic: unexpected token
+file: ./test/parser_error_test.gleam
+test_name: unexpected_token_rendering_test
+---
+Source:
+module main
+
+main() {
+  let value = )
+}
+
+---
+error: unexpected `)`
+  ╭─ src/main.pooka:4:15
+  │
+4 │   let value = )
+  │               ┬
+  │               ╰─ an expression should begin here
+  ╰─
+
+Expected an expression, but found `)`.
+
+Found 1 error.
+

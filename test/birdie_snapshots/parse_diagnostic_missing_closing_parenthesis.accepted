@@ -1,0 +1,38 @@
+---
+version: 2.0.2
+title: parse diagnostic: missing closing parenthesis
+file: ./test/parser_error_test.gleam
+test_name: missing_parenthesis_rendering_test
+---
+Source:
+module math
+
+add(a: Int, b: Int {
+  a + b
+}
+
+---
+error: module name does not match its file
+  ╭─ src/main.pooka:1:8
+  │
+1 │ module math
+  │        ──┬─
+  │          ╰─ this declares module `math`
+  ╰─
+
+`src/main.pooka` must declare `module main`.
+
+note: A module is named after its file, without `.pooka`.
+
+error: missing `)`
+  ╭─ src/main.pooka:3:4
+  │
+3 │ add(a: Int, b: Int {
+  │    ───────┬───────
+  │           ╰─ parameter list is not closed
+  ╰─
+
+Expected `)` before `{`.
+
+Found 2 errors.
+

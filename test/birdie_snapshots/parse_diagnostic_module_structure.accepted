@@ -1,0 +1,80 @@
+---
+version: 2.0.2
+title: parse diagnostic: module structure
+file: ./test/parser_error_test.gleam
+test_name: module_structure_rendering_test
+---
+Source:
+import io
+
+module main
+
+module other
+
+let x = 1
+
+io.println("hi")
+
+---
+error: missing module declaration
+  ╭─ src/main.pooka:1:1
+  │
+1 │ import io
+  │ ───┬──
+  │    ╰─ expected a `module` declaration before this
+  ╰─
+
+Every Pooka file begins with a `module` declaration, such as `module main`.
+
+note: A module is named after its file: `src/http/client.pooka` declares `module client`.
+
+error: module declaration is not first
+  ╭─ src/main.pooka:3:1
+  │
+3 │ module main
+  │ ─────┬─────
+  │      ╰─ this must come before imports and declarations
+  ╰─
+
+The `module` declaration is the first construct of a file after its documentation.
+
+error: module declared more than once
+  ╭─ src/main.pooka:5:1
+  │
+3 │ module main
+  │ ─────┬─────
+  │      ╰─ the module is declared here
+4 │
+5 │ module other
+  │ ──────┬─────
+  │       ╰─ this declares it again
+  ╰─
+
+A source file defines exactly one module.
+
+error: binding outside a function
+  ╭─ src/main.pooka:7:1
+  │
+7 │ let x = 1
+  │ ─┬─
+  │  ╰─ `let` is not allowed at the top level
+  ╰─
+
+Bindings belong inside functions, methods, constructors or tests.
+
+help: Wrap the value in a function, such as `default_name() { ... }`.
+
+error: code outside a function
+  ╭─ src/main.pooka:9:1
+  │
+9 │ io.println("hi")
+  │ ────────┬───────
+  │         ╰─ expressions cannot appear at the top level
+  ╰─
+
+Executable code belongs inside functions, methods, constructors or tests.
+
+note: Importing a module never runs code.
+
+Found 5 errors.
+

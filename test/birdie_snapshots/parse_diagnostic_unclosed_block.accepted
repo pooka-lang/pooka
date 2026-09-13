@@ -1,0 +1,26 @@
+---
+version: 2.0.2
+title: parse diagnostic: unclosed block
+file: ./test/parser_error_test.gleam
+test_name: unclosed_block_rendering_test
+---
+Source:
+module main
+
+main() {
+  let x = 1
+  x
+
+---
+error: missing `}`
+  ╭─ src/main.pooka:3:8
+  │
+3 │ main() {
+  │        ┬
+  │        ╰─ this block is never closed
+  ╰─
+
+Expected `}` before the end of the file.
+
+Found 1 error.
+
