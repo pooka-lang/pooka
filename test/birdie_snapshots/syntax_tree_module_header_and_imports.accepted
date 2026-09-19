@@ -1,0 +1,111 @@
+---
+version: 2.0.2
+title: syntax tree: module header and imports
+file: ./test/parser_snapshot_test.gleam
+test_name: imports_tree_test
+---
+Module(
+  [" Docs."],
+  Some(ModuleHeader(
+    Name(
+      "main",
+      Span(
+        Position(3, 8, 19),
+        Position(3, 12, 23),
+      ),
+    ),
+    Span(
+      Position(3, 1, 12),
+      Position(3, 12, 23),
+    ),
+  )),
+  [
+    Import(
+      ModulePath(
+        ["io"],
+        Span(
+          Position(5, 8, 32),
+          Position(5, 10, 34),
+        ),
+      ),
+      [],
+      None,
+      Span(
+        Position(5, 1, 25),
+        Position(5, 10, 34),
+      ),
+    ),
+    Import(
+      ModulePath(
+        ["user"],
+        Span(
+          Position(6, 8, 42),
+          Position(6, 12, 46),
+        ),
+      ),
+      [],
+      Some(Name(
+        "users",
+        Span(
+          Position(6, 16, 50),
+          Position(6, 21, 55),
+        ),
+      )),
+      Span(
+        Position(6, 1, 35),
+        Position(6, 21, 55),
+      ),
+    ),
+    Import(
+      ModulePath(
+        ["account"],
+        Span(
+          Position(7, 8, 63),
+          Position(7, 15, 70),
+        ),
+      ),
+      [
+        ImportedName(
+          Name(
+            "User",
+            Span(
+              Position(7, 17, 72),
+              Position(7, 21, 76),
+            ),
+          ),
+          Some(Name(
+            "AccountUser",
+            Span(
+              Position(7, 25, 80),
+              Position(7, 36, 91),
+            ),
+          )),
+          Span(
+            Position(7, 17, 72),
+            Position(7, 36, 91),
+          ),
+        ),
+        ImportedName(
+          Name(
+            "load",
+            Span(
+              Position(7, 38, 93),
+              Position(7, 42, 97),
+            ),
+          ),
+          None,
+          Span(
+            Position(7, 38, 93),
+            Position(7, 42, 97),
+          ),
+        ),
+      ],
+      None,
+      Span(
+        Position(7, 1, 56),
+        Position(7, 43, 98),
+      ),
+    ),
+  ],
+  [],
+)

@@ -1,0 +1,212 @@
+---
+version: 2.0.2
+title: syntax tree: a class
+file: ./test/parser_snapshot_test.gleam
+test_name: class_tree_test
+---
+Module(
+  [],
+  Some(ModuleHeader(
+    Name(
+      "user",
+      Span(
+        Position(1, 8, 7),
+        Position(1, 12, 11),
+      ),
+    ),
+    Span(
+      Position(1, 1, 0),
+      Position(1, 12, 11),
+    ),
+  )),
+  [],
+  [
+    ClassDeclaration(Class(
+      [],
+      Name(
+        "User",
+        Span(
+          Position(3, 7, 19),
+          Position(3, 11, 23),
+        ),
+      ),
+      [],
+      Some(NamedType(
+        None,
+        "Person",
+        [],
+        Span(
+          Position(3, 15, 27),
+          Position(3, 21, 33),
+        ),
+      )),
+      [
+        NamedType(
+          None,
+          "Printable",
+          [],
+          Span(
+            Position(3, 27, 39),
+            Position(3, 36, 48),
+          ),
+        ),
+      ],
+      [
+        FieldMember(Field(
+          [],
+          Immutable,
+          Name(
+            "name",
+            Span(
+              Position(4, 7, 57),
+              Position(4, 11, 61),
+            ),
+          ),
+          Some(NamedType(
+            None,
+            "String",
+            [],
+            Span(
+              Position(4, 13, 63),
+              Position(4, 19, 69),
+            ),
+          )),
+          None,
+          Span(
+            Position(4, 3, 53),
+            Position(4, 19, 69),
+          ),
+        )),
+        ConstructorMember(Constructor(
+          [],
+          [
+            Parameter(
+              NamedParameter("name"),
+              None,
+              Span(
+                Position(6, 7, 77),
+                Position(6, 11, 81),
+              ),
+            ),
+          ],
+          Block(
+            [
+              ExpressionStatement(Assignment(
+                AssignField(
+                  SelfExpression(Span(
+                    Position(7, 5, 89),
+                    Position(7, 9, 93),
+                  )),
+                  Name(
+                    "name",
+                    Span(
+                      Position(
+                        7,
+                        10,
+                        94,
+                      ),
+                      Position(
+                        7,
+                        14,
+                        98,
+                      ),
+                    ),
+                  ),
+                  Span(
+                    Position(7, 5, 89),
+                    Position(7, 14, 98),
+                  ),
+                ),
+                Assign,
+                Variable(
+                  "name",
+                  Span(
+                    Position(7, 17, 101),
+                    Position(7, 21, 105),
+                  ),
+                ),
+                Span(
+                  Position(7, 5, 89),
+                  Position(7, 21, 105),
+                ),
+              )),
+            ],
+            Span(
+              Position(6, 13, 83),
+              Position(8, 4, 109),
+            ),
+          ),
+          Span(
+            Position(6, 3, 73),
+            Position(8, 4, 109),
+          ),
+        )),
+        MethodMember(Function(
+          [],
+          Name(
+            "greet",
+            Span(
+              Position(10, 3, 113),
+              Position(10, 8, 118),
+            ),
+          ),
+          [],
+          None,
+          Block(
+            [
+              ExpressionStatement(Binary(
+                Add,
+                StringLiteral(
+                  "Hello, ",
+                  Span(
+                    Position(
+                      10,
+                      13,
+                      123,
+                    ),
+                    Position(
+                      10,
+                      22,
+                      132,
+                    ),
+                  ),
+                ),
+                Variable(
+                  "name",
+                  Span(
+                    Position(
+                      10,
+                      25,
+                      135,
+                    ),
+                    Position(
+                      10,
+                      29,
+                      139,
+                    ),
+                  ),
+                ),
+                Span(
+                  Position(10, 13, 123),
+                  Position(10, 29, 139),
+                ),
+              )),
+            ],
+            Span(
+              Position(10, 11, 121),
+              Position(10, 31, 141),
+            ),
+          ),
+          Span(
+            Position(10, 3, 113),
+            Position(10, 31, 141),
+          ),
+        )),
+      ],
+      Span(
+        Position(3, 1, 13),
+        Position(11, 2, 143),
+      ),
+    )),
+  ],
+)

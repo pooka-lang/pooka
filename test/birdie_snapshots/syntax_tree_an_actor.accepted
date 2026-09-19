@@ -1,0 +1,150 @@
+---
+version: 2.0.2
+title: syntax tree: an actor
+file: ./test/parser_snapshot_test.gleam
+test_name: actor_tree_test
+---
+Module(
+  [],
+  Some(ModuleHeader(
+    Name(
+      "counter",
+      Span(
+        Position(1, 8, 7),
+        Position(1, 15, 14),
+      ),
+    ),
+    Span(
+      Position(1, 1, 0),
+      Position(1, 15, 14),
+    ),
+  )),
+  [],
+  [
+    ActorDeclaration(Actor(
+      [],
+      Name(
+        "Counter",
+        Span(
+          Position(3, 7, 22),
+          Position(3, 14, 29),
+        ),
+      ),
+      [],
+      [],
+      [
+        FieldMember(Field(
+          [],
+          Mutable,
+          Name(
+            "count",
+            Span(
+              Position(4, 7, 38),
+              Position(4, 12, 43),
+            ),
+          ),
+          None,
+          Some(IntLiteral(
+            "0",
+            Span(
+              Position(4, 15, 46),
+              Position(4, 16, 47),
+            ),
+          )),
+          Span(
+            Position(4, 3, 34),
+            Position(4, 16, 47),
+          ),
+        )),
+        BehaviourMember(Function(
+          [],
+          Name(
+            "increment",
+            Span(
+              Position(6, 6, 54),
+              Position(6, 15, 63),
+            ),
+          ),
+          [],
+          None,
+          Block(
+            [
+              ExpressionStatement(Assignment(
+                AssignVariable(Name(
+                  "count",
+                  Span(
+                    Position(6, 20, 68),
+                    Position(6, 25, 73),
+                  ),
+                )),
+                AddAssign,
+                IntLiteral(
+                  "1",
+                  Span(
+                    Position(6, 29, 77),
+                    Position(6, 30, 78),
+                  ),
+                ),
+                Span(
+                  Position(6, 20, 68),
+                  Position(6, 30, 78),
+                ),
+              )),
+            ],
+            Span(
+              Position(6, 18, 66),
+              Position(6, 32, 80),
+            ),
+          ),
+          Span(
+            Position(6, 3, 51),
+            Position(6, 32, 80),
+          ),
+        )),
+        MethodMember(Function(
+          [],
+          Name(
+            "value",
+            Span(
+              Position(8, 3, 84),
+              Position(8, 8, 89),
+            ),
+          ),
+          [],
+          Some(NamedType(
+            None,
+            "Int",
+            [],
+            Span(
+              Position(8, 14, 95),
+              Position(8, 17, 98),
+            ),
+          )),
+          Block(
+            [
+              ExpressionStatement(Variable(
+                "count",
+                Span(
+                  Position(8, 20, 101),
+                  Position(8, 25, 106),
+                ),
+              )),
+            ],
+            Span(
+              Position(8, 18, 99),
+              Position(8, 27, 108),
+            ),
+          ),
+          Span(
+            Position(8, 3, 84),
+            Position(8, 27, 108),
+          ),
+        )),
+      ],
+      Span(
+        Position(3, 1, 16),
+        Position(9, 2, 110),
+      ),
+    )),
+  ],
+)

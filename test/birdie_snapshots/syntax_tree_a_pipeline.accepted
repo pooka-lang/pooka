@@ -1,0 +1,121 @@
+---
+version: 2.0.2
+title: syntax tree: a pipeline
+file: ./test/parser_snapshot_test.gleam
+test_name: pipeline_tree_test
+---
+Binary(
+  PipeOperator,
+  Binary(
+    PipeOperator,
+    Variable(
+      "input",
+      Span(
+        Position(4, 1, 25),
+        Position(4, 6, 30),
+      ),
+    ),
+    Propagate(
+      Call(
+        Variable(
+          "parse",
+          Span(
+            Position(5, 4, 34),
+            Position(5, 9, 39),
+          ),
+        ),
+        [],
+        Span(
+          Position(5, 4, 34),
+          Position(5, 11, 41),
+        ),
+      ),
+      Span(
+        Position(5, 4, 34),
+        Position(5, 12, 42),
+      ),
+    ),
+    Span(
+      Position(4, 1, 25),
+      Position(5, 12, 42),
+    ),
+  ),
+  Call(
+    FieldAccess(
+      Variable(
+        "list",
+        Span(
+          Position(6, 4, 46),
+          Position(6, 8, 50),
+        ),
+      ),
+      Name(
+        "map",
+        Span(
+          Position(6, 9, 51),
+          Position(6, 12, 54),
+        ),
+      ),
+      Span(
+        Position(6, 4, 46),
+        Position(6, 12, 54),
+      ),
+    ),
+    [
+      AnonymousFunction(
+        [
+          Parameter(
+            NamedParameter("x"),
+            None,
+            Span(
+              Position(6, 16, 58),
+              Position(6, 17, 59),
+            ),
+          ),
+        ],
+        None,
+        Block(
+          [
+            ExpressionStatement(Binary(
+              Multiply,
+              Variable(
+                "x",
+                Span(
+                  Position(6, 21, 63),
+                  Position(6, 22, 64),
+                ),
+              ),
+              IntLiteral(
+                "2",
+                Span(
+                  Position(6, 25, 67),
+                  Position(6, 26, 68),
+                ),
+              ),
+              Span(
+                Position(6, 21, 63),
+                Position(6, 26, 68),
+              ),
+            )),
+          ],
+          Span(
+            Position(6, 19, 61),
+            Position(6, 28, 70),
+          ),
+        ),
+        Span(
+          Position(6, 13, 55),
+          Position(6, 28, 70),
+        ),
+      ),
+    ],
+    Span(
+      Position(6, 4, 46),
+      Position(6, 29, 71),
+    ),
+  ),
+  Span(
+    Position(4, 1, 25),
+    Position(6, 29, 71),
+  ),
+)

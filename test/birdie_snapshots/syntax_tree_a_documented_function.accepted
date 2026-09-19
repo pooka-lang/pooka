@@ -1,0 +1,125 @@
+---
+version: 2.0.2
+title: syntax tree: a documented function
+file: ./test/parser_snapshot_test.gleam
+test_name: function_tree_test
+---
+Module(
+  [],
+  Some(ModuleHeader(
+    Name(
+      "math",
+      Span(
+        Position(1, 8, 7),
+        Position(1, 12, 11),
+      ),
+    ),
+    Span(
+      Position(1, 1, 0),
+      Position(1, 12, 11),
+    ),
+  )),
+  [],
+  [
+    FunctionDeclaration(Function(
+      [" Adds two numbers."],
+      Name(
+        "add",
+        Span(
+          Position(4, 1, 35),
+          Position(4, 4, 38),
+        ),
+      ),
+      [
+        Parameter(
+          NamedParameter("a"),
+          Some(NamedType(
+            None,
+            "Int",
+            [],
+            Span(
+              Position(4, 8, 42),
+              Position(4, 11, 45),
+            ),
+          )),
+          Span(
+            Position(4, 5, 39),
+            Position(4, 11, 45),
+          ),
+        ),
+        Parameter(
+          NamedParameter("b"),
+          Some(NamedType(
+            None,
+            "Int",
+            [],
+            Span(
+              Position(4, 16, 50),
+              Position(4, 19, 53),
+            ),
+          )),
+          Span(
+            Position(4, 13, 47),
+            Position(4, 19, 53),
+          ),
+        ),
+      ],
+      Some(NamedType(
+        None,
+        "Int",
+        [],
+        Span(
+          Position(4, 24, 58),
+          Position(4, 27, 61),
+        ),
+      )),
+      Block(
+        [
+          ExpressionStatement(Binary(
+            Add,
+            Variable(
+              "a",
+              Span(
+                Position(5, 3, 66),
+                Position(5, 4, 67),
+              ),
+            ),
+            Binary(
+              Multiply,
+              Variable(
+                "b",
+                Span(
+                  Position(5, 7, 70),
+                  Position(5, 8, 71),
+                ),
+              ),
+              IntLiteral(
+                "2",
+                Span(
+                  Position(5, 11, 74),
+                  Position(5, 12, 75),
+                ),
+              ),
+              Span(
+                Position(5, 7, 70),
+                Position(5, 12, 75),
+              ),
+            ),
+            Span(
+              Position(5, 3, 66),
+              Position(5, 12, 75),
+            ),
+          )),
+        ],
+        Span(
+          Position(4, 28, 62),
+          Position(6, 2, 77),
+        ),
+      ),
+      Span(
+        Position(4, 1, 35),
+        Position(6, 2, 77),
+      ),
+    )),
+  ],
+)

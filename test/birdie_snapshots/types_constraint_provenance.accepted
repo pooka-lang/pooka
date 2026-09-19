@@ -1,0 +1,29 @@
+---
+version: 2.0.2
+title: types: constraint provenance
+file: ./test/type_system_test.gleam
+test_name: constraint_provenance_snapshot_test
+---
+error: type mismatch
+
+  ╭─ src/main.pooka:2:5
+  │
+1 │ let x = 1
+  │         ┬
+  │         ╰─ earlier constraint: the binding is initialized with an Int
+2 │ use(x)
+  │     ┬
+  │     ╰─ found Int
+  ╰─
+
+  ╭─ src/library.pooka:1:8
+  │
+1 │ use(x: String) { Nil }
+  │        ───┬──
+  │           ╰─ expected String
+  ╰─
+
+This argument must have type String.
+
+Found 1 error.
+

@@ -1,0 +1,152 @@
+---
+version: 2.0.2
+title: syntax tree: a match expression
+file: ./test/parser_snapshot_test.gleam
+test_name: match_tree_test
+---
+Match(
+  Variable(
+    "result",
+    Span(
+      Position(4, 7, 31),
+      Position(4, 13, 37),
+    ),
+  ),
+  [
+    Branch(
+      ConstructorPattern(
+        None,
+        "Ok",
+        [
+          ListPattern(
+            [
+              VariablePattern(
+                "first",
+                Span(
+                  Position(5, 7, 46),
+                  Position(5, 12, 51),
+                ),
+              ),
+            ],
+            Some(BoundTail(
+              "rest",
+              Span(
+                Position(5, 14, 53),
+                Position(5, 20, 59),
+              ),
+            )),
+            Span(
+              Position(5, 6, 45),
+              Position(5, 21, 60),
+            ),
+          ),
+        ],
+        Span(
+          Position(5, 3, 42),
+          Position(5, 22, 61),
+        ),
+      ),
+      Some(Binary(
+        Greater,
+        Variable(
+          "first",
+          Span(
+            Position(5, 26, 65),
+            Position(5, 31, 70),
+          ),
+        ),
+        IntLiteral(
+          "0",
+          Span(
+            Position(5, 34, 73),
+            Position(5, 35, 74),
+          ),
+        ),
+        Span(
+          Position(5, 26, 65),
+          Position(5, 35, 74),
+        ),
+      )),
+      Variable(
+        "first",
+        Span(
+          Position(5, 39, 78),
+          Position(5, 44, 83),
+        ),
+      ),
+      Span(
+        Position(5, 3, 42),
+        Position(5, 44, 83),
+      ),
+    ),
+    Branch(
+      ConstructorPattern(
+        None,
+        "Ok",
+        [
+          DiscardPattern(Span(
+            Position(6, 6, 89),
+            Position(6, 7, 90),
+          )),
+        ],
+        Span(
+          Position(6, 3, 86),
+          Position(6, 8, 91),
+        ),
+      ),
+      None,
+      IntLiteral(
+        "0",
+        Span(
+          Position(6, 12, 95),
+          Position(6, 13, 96),
+        ),
+      ),
+      Span(
+        Position(6, 3, 86),
+        Position(6, 13, 96),
+      ),
+    ),
+    Branch(
+      ConstructorPattern(
+        None,
+        "Error",
+        [
+          VariablePattern(
+            "error",
+            Span(
+              Position(7, 9, 105),
+              Position(7, 14, 110),
+            ),
+          ),
+        ],
+        Span(
+          Position(7, 3, 99),
+          Position(7, 15, 111),
+        ),
+      ),
+      None,
+      Panic(
+        Some(StringLiteral(
+          "failed",
+          Span(
+            Position(7, 28, 124),
+            Position(7, 36, 132),
+          ),
+        )),
+        Span(
+          Position(7, 19, 115),
+          Position(7, 36, 132),
+        ),
+      ),
+      Span(
+        Position(7, 3, 99),
+        Position(7, 36, 132),
+      ),
+    ),
+  ],
+  Span(
+    Position(4, 1, 25),
+    Position(8, 2, 134),
+  ),
+)

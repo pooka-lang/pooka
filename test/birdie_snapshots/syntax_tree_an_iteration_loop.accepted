@@ -1,0 +1,115 @@
+---
+version: 2.0.2
+title: syntax tree: an iteration loop
+file: ./test/parser_snapshot_test.gleam
+test_name: loop_tree_test
+---
+Loop(
+  Some(Iteration(
+    VariablePattern(
+      "item",
+      Span(
+        Position(4, 6, 30),
+        Position(4, 10, 34),
+      ),
+    ),
+    Variable(
+      "items",
+      Span(
+        Position(4, 14, 38),
+        Position(4, 19, 43),
+      ),
+    ),
+    Span(
+      Position(4, 6, 30),
+      Position(4, 19, 43),
+    ),
+  )),
+  Block(
+    [
+      ExpressionStatement(Match(
+        Call(
+          Variable(
+            "valid",
+            Span(
+              Position(5, 9, 54),
+              Position(5, 14, 59),
+            ),
+          ),
+          [
+            Variable(
+              "item",
+              Span(
+                Position(5, 15, 60),
+                Position(5, 19, 64),
+              ),
+            ),
+          ],
+          Span(
+            Position(5, 9, 54),
+            Position(5, 20, 65),
+          ),
+        ),
+        [
+          Branch(
+            BoolPattern(
+              True,
+              Span(
+                Position(6, 5, 72),
+                Position(6, 9, 76),
+              ),
+            ),
+            None,
+            Break(
+              Some(Variable(
+                "item",
+                Span(
+                  Position(6, 19, 86),
+                  Position(6, 23, 90),
+                ),
+              )),
+              Span(
+                Position(6, 13, 80),
+                Position(6, 23, 90),
+              ),
+            ),
+            Span(
+              Position(6, 5, 72),
+              Position(6, 23, 90),
+            ),
+          ),
+          Branch(
+            BoolPattern(
+              False,
+              Span(
+                Position(7, 5, 95),
+                Position(7, 10, 100),
+              ),
+            ),
+            None,
+            Continue(Span(
+              Position(7, 14, 104),
+              Position(7, 22, 112),
+            )),
+            Span(
+              Position(7, 5, 95),
+              Position(7, 22, 112),
+            ),
+          ),
+        ],
+        Span(
+          Position(5, 3, 48),
+          Position(8, 4, 116),
+        ),
+      )),
+    ],
+    Span(
+      Position(4, 20, 44),
+      Position(9, 2, 118),
+    ),
+  ),
+  Span(
+    Position(4, 1, 25),
+    Position(9, 2, 118),
+  ),
+)
