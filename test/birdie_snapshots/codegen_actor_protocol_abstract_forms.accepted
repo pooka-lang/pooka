@@ -1,0 +1,80 @@
+---
+version: 2.0.2
+title: codegen actor protocol abstract forms
+file: ./test/actor_semantics_test.gleam
+test_name: actor_protocol_abstract_forms_snapshot_test
+---
+-module(pooka@app@main).
+-file("src/main.pooka", 1).
+-export([main/0,
+         '$actor@Counter@init'/0,
+         '$actor@Counter@increment'/1,
+         '$actor@Counter@value'/1,
+         '$class@Counter@new'/0,
+         '$class@Counter@increment'/1,
+         '$class@Counter@value'/1]).
+'$actor@Counter@init'() ->
+    pooka_runtime_ffi:actor_initialize({pooka@class@main@Counter,
+                                        '$uninitialized'}),
+    M0 = pooka_runtime_ffi:actor_self(),
+    begin
+        M1 = 0,
+        pooka_runtime_ffi:actor_write(M0, 2, M1)
+    end,
+    nil,
+    nil.
+'$class@Counter@new'() ->
+    pooka_runtime_ffi:actor_start(pooka@app@main, 'Counter',
+                                  '$actor@Counter@init', []).
+'$actor@Counter@increment'(M2) ->
+    pooka_runtime_ffi:actor_owner(M2),
+    begin
+        begin
+            M5 =
+                begin
+                    M3 = pooka_runtime_ffi:actor_read(M2, 2),
+                    M4 = 1,
+                    M3 + M4
+                end,
+            pooka_runtime_ffi:actor_write(M2, 2, M5)
+        end,
+        nil
+    end.
+'$class@Counter@increment'(Receiver) ->
+    pooka_runtime_ffi:actor_call(Receiver, '$actor@Counter@increment',
+                                 [], true).
+'$actor@Counter@value'(M7) ->
+    pooka_runtime_ffi:actor_owner(M7),
+    begin pooka_runtime_ffi:actor_read(M7, 2) end.
+'$class@Counter@value'(Receiver) ->
+    pooka_runtime_ffi:actor_call(Receiver, '$actor@Counter@value', [],
+                                 false).
+main() ->
+    begin
+        M10 =
+            begin
+                M9 = fun '$class@Counter@new'/0,
+                M9()
+            end,
+        begin
+            M12 =
+                begin
+                    M11 = M10,
+                    fun() ->
+                           pooka@app@main:'$class@Counter@increment'(M11)
+                    end
+                end,
+            M12()
+        end,
+        begin
+            M14 =
+                begin
+                    M13 = M10,
+                    fun() ->
+                           pooka@app@main:'$class@Counter@value'(M13)
+                    end
+                end,
+            M14()
+        end
+    end.
+

@@ -1,0 +1,30 @@
+---
+version: 2.0.2
+title: types nominal private member access
+file: ./test/class_infer_test.gleam
+test_name: class_member_diagnostics_snapshot_test
+---
+[
+  Diagnostic(
+    "type.private_member",
+    ErrorSeverity,
+    "private class member",
+    [
+      Label(
+        Location(
+          "src/main.pooka",
+          Span(
+            Position(4, 21, 100),
+            Position(4, 27, 106),
+          ),
+        ),
+        "This member is accessible only inside its declaring class.",
+        Primary,
+      ),
+    ],
+    "",
+    [],
+    [],
+    [],
+  ),
+]

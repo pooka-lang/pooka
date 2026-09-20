@@ -1,0 +1,30 @@
+---
+version: 2.0.2
+title: types actor field isolation
+file: ./test/actor_semantics_test.gleam
+test_name: actor_state_diagnostics_snapshot_test
+---
+[
+  Diagnostic(
+    "type.actor_field_access",
+    ErrorSeverity,
+    "actor state is isolated",
+    [
+      Label(
+        Location(
+          "src/main.pooka",
+          Span(
+            Position(6, 24, 119),
+            Position(6, 29, 124),
+          ),
+        ),
+        "Actor fields are accessible only implicitly inside their owning actor.",
+        Primary,
+      ),
+    ],
+    "",
+    [],
+    [],
+    [],
+  ),
+]
