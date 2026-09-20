@@ -1,0 +1,130 @@
+---
+version: 2.0.2
+title: codegen direct erlang abstract forms
+file: ./test/codegen_test.gleam
+test_name: direct_abstract_forms_snapshot_test
+---
+[
+  Tuple([
+    Atom("attribute"),
+    Integer(1),
+    Atom("module"),
+    Atom("pooka@app@main"),
+  ]),
+  Tuple([
+    Atom("attribute"),
+    Integer(1),
+    Atom("file"),
+    Tuple([
+      Characters("src/main.pooka"),
+      Integer(1),
+    ]),
+  ]),
+  Tuple([
+    Atom("attribute"),
+    Integer(1),
+    Atom("export"),
+    Sequence([
+      Tuple([Atom("main"), Integer(0)]),
+    ]),
+  ]),
+  Tuple([
+    Atom("function"),
+    Integer(2),
+    Atom("main"),
+    Integer(0),
+    Sequence([
+      Tuple([
+        Atom("clause"),
+        Integer(2),
+        Sequence([]),
+        Sequence([]),
+        Sequence([
+          Tuple([
+            Atom("block"),
+            Integer(2),
+            Sequence([
+              Tuple([
+                Atom("match"),
+                Integer(2),
+                Tuple([
+                  Atom("var"),
+                  Integer(2),
+                  Atom("M0"),
+                ]),
+                Tuple([
+                  Atom("integer"),
+                  Integer(2),
+                  Integer(40),
+                ]),
+              ]),
+              Tuple([
+                Atom("block"),
+                Integer(3),
+                Sequence([
+                  Tuple([
+                    Atom("match"),
+                    Integer(3),
+                    Tuple([
+                      Atom("var"),
+                      Integer(3),
+                      Atom("M1"),
+                    ]),
+                    Tuple([
+                      Atom("var"),
+                      Integer(2),
+                      Atom("M0"),
+                    ]),
+                  ]),
+                  Tuple([
+                    Atom("match"),
+                    Integer(3),
+                    Tuple([
+                      Atom("var"),
+                      Integer(3),
+                      Atom("M2"),
+                    ]),
+                    Tuple([
+                      Atom("integer"),
+                      Integer(3),
+                      Integer(2),
+                    ]),
+                  ]),
+                  Tuple([
+                    Atom("op"),
+                    Integer(3),
+                    Atom("+"),
+                    Tuple([
+                      Atom("var"),
+                      Integer(3),
+                      Atom("M1"),
+                    ]),
+                    Tuple([
+                      Atom("var"),
+                      Integer(3),
+                      Atom("M2"),
+                    ]),
+                  ]),
+                ]),
+              ]),
+            ]),
+          ]),
+        ]),
+      ]),
+    ]),
+  ]),
+]
+---
+-module(pooka@app@main).
+-file("src/main.pooka", 1).
+-export([main/0]).
+main() ->
+    begin
+        M0 = 40,
+        begin
+            M1 = M0,
+            M2 = 2,
+            M1 + M2
+        end
+    end.
+

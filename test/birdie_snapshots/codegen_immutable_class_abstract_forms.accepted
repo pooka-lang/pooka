@@ -1,0 +1,39 @@
+---
+version: 2.0.2
+title: codegen immutable class abstract forms
+file: ./test/codegen_test.gleam
+test_name: class_abstract_forms_snapshot_test
+---
+-module(pooka@app@main).
+-file("src/main.pooka", 1).
+-export([main/0,'$class@Box@new'/1,'$class@Box@get'/1]).
+'$class@Box@new'(M0) ->
+    M1 = {pooka@class@main@Box, '$uninitialized'},
+    begin
+        M2 = M0,
+        M3 = setelement(2, M1, M2),
+        nil
+    end,
+    M3.
+'$class@Box@get'(M4) ->
+    begin element(2, M4) end.
+main() ->
+    begin
+        M9 =
+            begin
+                M8 =
+                    begin
+                        M6 = fun '$class@Box@new'/1,
+                        M7 = 42,
+                        M6(M7)
+                    end,
+                fun() ->
+                       '$class@Box@get'(M8)
+                end
+            end,
+        begin
+            M10 = M9,
+            M10()
+        end
+    end.
+
