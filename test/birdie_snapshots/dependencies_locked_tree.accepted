@@ -1,0 +1,12 @@
+---
+version: 2.0.2
+title: dependencies locked tree
+file: ./test/dependencies_test.gleam
+test_name: dependency_inspection_is_offline_and_preserves_lockfile_test
+---
+app 0.1.0
+├── left 0.1.0 (path: ../left)
+│   └── shared 0.1.0 (path: ../shared)
+└── right 0.1.0 (path: ../right)
+    └── shared 0.1.0 (path: ../shared) (*)
+

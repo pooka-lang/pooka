@@ -1,0 +1,91 @@
+---
+version: 2.0.2
+title: cli: command help with colour
+file: ./test/cli_test.gleam
+test_name: coloured_command_help_snapshot_test
+---
+$ pooka test --help
+<ESC>[1;38;2;255;137;31mCompile and execute the project's tests<ESC>[0m
+
+<ESC>[1;38;2;255;137;31mUsage:<ESC>[0m pooka <ESC>[38;2;255;137;31mtest<ESC>[0m <ESC>[38;2;117;97;142m[--verbose|--compact]<ESC>[0m
+
+Compile and run project tests. Skipped tests are checked but not run.
+
+<ESC>[1;38;2;255;137;31mOptions:<ESC>[0m
+  <ESC>[38;2;255;137;31m--verbose<ESC>[0m  Show timings, captured output and failure stack traces
+  <ESC>[38;2;255;137;31m--compact<ESC>[0m  Show failures and totals only
+  <ESC>[38;2;255;137;31m-h,<ESC>[0m <ESC>[38;2;255;137;31m--help<ESC>[0m  Print this help
+
+
+$ pooka add --help
+<ESC>[1;38;2;255;137;31mAdd a dependency<ESC>[0m
+
+<ESC>[1;38;2;255;137;31mUsage:<ESC>[0m pooka <ESC>[38;2;255;137;31madd<ESC>[0m <ESC>[38;2;117;97;142m<package[@version]><ESC>[0m <ESC>[38;2;117;97;142m[options]<ESC>[0m
+
+Add a dependency to pooka.toml and resolve the package graph.
+
+<ESC>[1;38;2;255;137;31mOptions:<ESC>[0m
+  <ESC>[38;2;255;137;31m--dev<ESC>[0m           Add a development dependency
+  <ESC>[38;2;255;137;31m--path<ESC>[0m <ESC>[38;2;117;97;142m<path><ESC>[0m   Use a local package
+  <ESC>[38;2;255;137;31m--git<ESC>[0m <ESC>[38;2;117;97;142m<url><ESC>[0m     Use a Git repository
+  <ESC>[38;2;255;137;31m--branch<ESC>[0m <ESC>[38;2;117;97;142m<name><ESC>[0m Select a Git branch
+  <ESC>[38;2;255;137;31m--tag<ESC>[0m <ESC>[38;2;117;97;142m<tag><ESC>[0m     Select a Git tag
+  <ESC>[38;2;255;137;31m--rev<ESC>[0m <ESC>[38;2;117;97;142m<commit><ESC>[0m  Pin a Git revision
+  <ESC>[38;2;255;137;31m-h,<ESC>[0m <ESC>[38;2;255;137;31m--help<ESC>[0m  Print this help
+
+<ESC>[1;38;2;255;137;31mExamples:<ESC>[0m
+  pooka add helper --path ../helper
+  pooka add helper --git https://example.com/helper.git --tag v1.0.0
+
+
+$ pooka deps --help
+<ESC>[1;38;2;255;137;31mManage dependencies<ESC>[0m
+
+<ESC>[1;38;2;255;137;31mUsage:<ESC>[0m pooka <ESC>[38;2;255;137;31mdeps<ESC>[0m <ESC>[38;2;117;97;142m<command><ESC>[0m
+
+Manage dependencies.
+
+<ESC>[1;38;2;255;137;31mCommands:<ESC>[0m
+  <ESC>[38;2;255;137;31mdownload<ESC>[0m  Resolve and download dependencies using existing pins
+  <ESC>[38;2;255;137;31mupdate<ESC>[0m    Re-resolve dependencies and update pooka.lock
+  <ESC>[38;2;255;137;31mlist<ESC>[0m      List locked packages without fetching
+  <ESC>[38;2;255;137;31mtree<ESC>[0m      Show locked dependency edges without fetching
+
+Run pooka deps <command> --help for individual help.
+
+<ESC>[1;38;2;255;137;31mOptions:<ESC>[0m
+  <ESC>[38;2;255;137;31m-h,<ESC>[0m <ESC>[38;2;255;137;31m--help<ESC>[0m  Print this help
+
+$ pooka export release --help
+<ESC>[1;38;2;255;137;31mExport an escript, production shipment or OTP release<ESC>[0m
+
+<ESC>[1;38;2;255;137;31mUsage:<ESC>[0m pooka <ESC>[38;2;255;137;31mexport<ESC>[0m <ESC>[38;2;255;137;31mrelease<ESC>[0m <ESC>[38;2;117;97;142m[--include-erts|--no-erts]<ESC>[0m
+
+Create an OTP release in build/release.
+
+<ESC>[1;38;2;255;137;31mOptions:<ESC>[0m
+  <ESC>[38;2;255;137;31m--include-erts<ESC>[0m  Bundle the Erlang runtime
+  <ESC>[38;2;255;137;31m--no-erts<ESC>[0m       Use the target system runtime (default)
+  <ESC>[38;2;255;137;31m-h,<ESC>[0m <ESC>[38;2;255;137;31m--help<ESC>[0m  Print this help
+
+
+$ pooka format --help
+<ESC>[1;38;2;255;137;31mFormat Pooka source code<ESC>[0m
+
+<ESC>[1;38;2;255;137;31mUsage:<ESC>[0m pooka <ESC>[38;2;255;137;31mformat<ESC>[0m <ESC>[38;2;117;97;142m[--check]<ESC>[0m <ESC>[38;2;117;97;142m[<file.pooka>...]<ESC>[0m
+
+Format source files, or all project sources when no files are given.
+
+<ESC>[1;38;2;255;137;31mOptions:<ESC>[0m
+  <ESC>[38;2;255;137;31m--check<ESC>[0m  Report formatting differences without writing files
+  <ESC>[38;2;255;137;31m-h,<ESC>[0m <ESC>[38;2;255;137;31m--help<ESC>[0m  Print this help
+
+<ESC>[1;38;2;255;137;31mAlias:<ESC>[0m pooka fmt
+
+
+$ pooka version --help
+<ESC>[1;38;2;255;137;31mPrint the compiler version.<ESC>[0m
+
+<ESC>[1;38;2;255;137;31mUsage:<ESC>[0m pooka <ESC>[38;2;255;137;31mversion<ESC>[0m
+<ESC>[1;38;2;255;137;31mAliases:<ESC>[0m -V, --version
+

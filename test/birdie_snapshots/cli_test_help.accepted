@@ -1,0 +1,18 @@
+---
+version: 2.0.2
+title: cli: test help
+file: ./test/cli_test.gleam
+test_name: command_help_snapshot_test
+---
+Compile and execute the project's tests
+
+Usage: pooka test [--verbose|--compact]
+
+Compile and run project tests. Skipped tests are checked but not run.
+
+Options:
+  --verbose  Show timings, captured output and failure stack traces
+  --compact  Show failures and totals only
+  -h, --help  Print this help
+
+

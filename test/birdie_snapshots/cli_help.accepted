@@ -1,0 +1,30 @@
+---
+version: 2.0.2
+title: cli: help
+file: ./test/cli_test.gleam
+test_name: help_snapshot_test
+---
+Pooka programming language <version>
+Objects belong on the BEAM too.
+
+Usage: pooka <command> [arguments]
+
+Commands:
+  new <name>                          Create a new Pooka project
+  check [--verbose] [--json] [--fix]  Check the project for errors
+  build [--target dev|prod]           Type check and compile the project to BEAM
+  run [-- <arguments>]                Build and execute main()
+  test [--verbose|--compact]          Compile and execute the project's tests
+  format [--check] [<file.pooka>...]  Format Pooka source code
+  docs                                Generate documentation for the project
+  add <package[@version]> [options]   Add a dependency
+  remove <package>                    Remove a dependency
+  deps <command>                      Manage dependencies
+  export <escript|shipment|release>   Export an escript, production shipment or OTP release
+  publish [options]                   Prepare or publish a package and documentation to Hex
+  clean                               Remove build artifacts
+  -h, --help                          Print this help
+  -V, --version                       Print the version
+
+Run `pooka <command> --help` for command-specific usage.
+

@@ -1,0 +1,23 @@
+---
+version: 2.0.2
+title: cli: dependency help
+file: ./test/cli_test.gleam
+test_name: dependency_help_snapshot_test
+---
+Manage dependencies
+
+Usage: pooka deps <command>
+
+Manage dependencies.
+
+Commands:
+  download  Resolve and download dependencies using existing pins
+  update    Re-resolve dependencies and update pooka.lock
+  list      List locked packages without fetching
+  tree      Show locked dependency edges without fetching
+
+Run pooka deps <command> --help for individual help.
+
+Options:
+  -h, --help  Print this help
+

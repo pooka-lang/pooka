@@ -1,0 +1,12 @@
+---
+version: 2.0.2
+title: cli: unknown command
+file: ./test/cli_test.gleam
+test_name: unknown_command_snapshot_test
+---
+error: unknown command
+
+`pooka frobnicate` is not a command that Pooka understands.
+
+help: Run `pooka --help` to see the available commands.
+

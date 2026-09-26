@@ -1,0 +1,30 @@
+---
+version: 2.0.2
+title: cli: help with colour
+file: ./test/cli_test.gleam
+test_name: coloured_help_snapshot_test
+---
+<ESC>[1;38;2;255;137;31mPooka<ESC>[0m programming language <ESC>[38;2;117;97;142m<version><ESC>[0m
+<ESC>[38;2;117;97;142mObjects belong on the BEAM too.<ESC>[0m
+
+<ESC>[1;38;2;255;137;31mUsage:<ESC>[0m pooka <ESC>[38;2;117;97;142m<command><ESC>[0m <ESC>[38;2;117;97;142m[arguments]<ESC>[0m
+
+<ESC>[1;38;2;255;137;31mCommands:<ESC>[0m
+  <ESC>[38;2;255;137;31mnew<ESC>[0m <ESC>[38;2;117;97;142m<name><ESC>[0m                          Create a new Pooka project
+  <ESC>[38;2;255;137;31mcheck<ESC>[0m <ESC>[38;2;117;97;142m[--verbose] [--json] [--fix]<ESC>[0m  Check the project for errors
+  <ESC>[38;2;255;137;31mbuild<ESC>[0m <ESC>[38;2;117;97;142m[--target dev|prod]<ESC>[0m           Type check and compile the project to BEAM
+  <ESC>[38;2;255;137;31mrun<ESC>[0m <ESC>[38;2;117;97;142m[-- <arguments>]<ESC>[0m                Build and execute main()
+  <ESC>[38;2;255;137;31mtest<ESC>[0m <ESC>[38;2;117;97;142m[--verbose|--compact]<ESC>[0m          Compile and execute the project's tests
+  <ESC>[38;2;255;137;31mformat<ESC>[0m <ESC>[38;2;117;97;142m[--check] [<file.pooka>...]<ESC>[0m  Format Pooka source code
+  <ESC>[38;2;255;137;31mdocs<ESC>[0m                                Generate documentation for the project
+  <ESC>[38;2;255;137;31madd<ESC>[0m <ESC>[38;2;117;97;142m<package[@version]> [options]<ESC>[0m   Add a dependency
+  <ESC>[38;2;255;137;31mremove<ESC>[0m <ESC>[38;2;117;97;142m<package><ESC>[0m                    Remove a dependency
+  <ESC>[38;2;255;137;31mdeps<ESC>[0m <ESC>[38;2;117;97;142m<command><ESC>[0m                      Manage dependencies
+  <ESC>[38;2;255;137;31mexport<ESC>[0m <ESC>[38;2;117;97;142m<escript|shipment|release><ESC>[0m   Export an escript, production shipment or OTP release
+  <ESC>[38;2;255;137;31mpublish<ESC>[0m <ESC>[38;2;117;97;142m[options]<ESC>[0m                   Prepare or publish a package and documentation to Hex
+  <ESC>[38;2;255;137;31mclean<ESC>[0m                               Remove build artifacts
+  <ESC>[38;2;255;137;31m-h, --help<ESC>[0m                          Print this help
+  <ESC>[38;2;255;137;31m-V, --version<ESC>[0m                       Print the version
+
+Run `pooka <command> --help` for command-specific usage.
+

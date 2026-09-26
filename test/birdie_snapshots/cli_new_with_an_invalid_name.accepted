@@ -1,0 +1,14 @@
+---
+version: 2.0.2
+title: cli: new with an invalid name
+file: ./test/cli_test.gleam
+test_name: new_with_an_invalid_name_snapshot_test
+---
+error: invalid project name
+
+`My-App` starts with `M`, but a project name must start with a lower-case letter.
+
+note: Project names use `snake_case`: lower-case letters, digits and underscores, starting with a letter.
+
+help: Try `pooka new my_app`.
+

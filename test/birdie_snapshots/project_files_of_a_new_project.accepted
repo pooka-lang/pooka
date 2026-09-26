@@ -1,0 +1,128 @@
+---
+version: 2.0.2
+title: project: files of a new project
+file: ./test/project_test.gleam
+test_name: template_snapshot_test
+---
+--- pooka.toml ---
+name = "my_app"
+version = "1.0.0"
+
+# A one-line summary, shown on Hex and in the generated documentation.
+# description = "A Pooka project"
+
+# The people who made it, shown in the generated documentation.
+# authors = ["Your Name"]
+
+# SPDX licence identifiers, for example "Apache-2.0" or "MIT".
+# licences = ["Apache-2.0"]
+
+# Where the source lives. `type` is github, gitlab, bitbucket, codeberg,
+# sourcehut, tangled, gitea or forgejo (with `host`), or custom (with `url`).
+# repository = { type = "github", user = "your-name", repo = "my_app" }
+
+# Extra links for Hex and the documentation sidebar.
+# links = [
+#   { title = "Website", href = "https://example.com" },
+# ]
+
+[dependencies]
+pooka_stdlib = ">= 0.1.0 and <= 1.0.0"
+# Add packages with `pooka add <package>`, or declare them here.
+# A package in a local directory:
+# helper = { path = "../helper" }
+# A Git repository, at one branch, tag or rev:
+# parser = { git = "https://github.com/your-name/parser", tag = "v1.0.0" }
+
+[dev-dependencies]
+# Packages used only by tests, declared the same way:
+# test_helpers = { path = "../test_helpers" }
+
+# Extra Markdown pages for `pooka docs`, one block per page:
+# [[documentation.pages]]
+# title = "Guide"
+# path = "guide.html"
+# source = "docs/guide.md"
+
+--- src/main.pooka ---
+module main
+
+main() {
+  echo "Hello from my_app!"
+}
+
+--- test/main.spec.pooka ---
+module main_test
+
+test "one plus one is two" {
+  assert 1 + 1 == 2
+}
+
+--- README.md ---
+# my_app
+
+[![Package Version](https://img.shields.io/hexpm/v/my_app?style=for-the-badge&color=75618E)](https://hex.pm/packages/my_app)
+[![Hex Docs](https://img.shields.io/website?url=https%3A%2F%2Fmy-app.hexdocs.pm%2F&style=for-the-badge&label=hex&up_message=docs&up_color=FF891F&down_message=not%20found&down_color=lightgrey)](https://my-app.hexdocs.pm/)
+[![Tests](https://img.shields.io/github/actions/workflow/status/YOUR_USERNAME/my_app/test.yml?style=for-the-badge&label=tests)](https://github.com/YOUR_USERNAME/my_app/actions/workflows/test.yml)
+
+<!-- Replace YOUR_USERNAME with your GitHub account or organisation. -->
+
+```sh
+pooka add my_app
+```
+
+```pooka
+import my_app
+
+main() {
+  // TODO: An example of the project in use
+}
+```
+
+Further documentation can be found at <https://my-app.hexdocs.pm/>.
+
+## Development
+
+```sh
+pooka run   # Run the project
+pooka test  # Run the tests
+```
+
+--- .gitignore ---
+/build
+*.beam
+*.ez
+erl_crash.dump
+.DS_Store
+
+--- .github/workflows/test.yml ---
+name: test
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "29"
+          rebar3-version: "3"
+          # gleam-version: "1.19.0"
+          # elixir-version: "1"
+      - uses: peregrinefinch/setup-pooka@v1
+        with:
+          pooka-version: "0.1.0"
+      - run: pooka deps download
+      - run: pooka test
+      - run: pooka format --check
+
