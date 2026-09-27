@@ -1,0 +1,52 @@
+---
+version: 2.0.2
+title: bitwise operators: type errors
+file: ./test/bitwise_operator_test.gleam
+test_name: bitwise_diagnostics_snapshot_test
+---
+Source:
+module main
+main() {
+  let a = True | False
+  let b = 1.5 & 2
+  a
+}
+
+---
+error: type mismatch
+  ╭─ src/main.pooka:3:11
+  │
+3 │   let a = True | False
+  │           ──┬─────┬───
+  │             │     ╰─ expected Int
+  │             ╰─ found Bool
+  ╰─
+
+Bitwise operators require Int operands.
+
+help: Boolean disjunction is written `||`.
+
+error: type mismatch
+  ╭─ src/main.pooka:3:18
+  │
+3 │   let a = True | False
+  │           ──────┬─────┬
+  │                 │     ╰─ found Bool
+  │                 ╰─ expected Int
+  ╰─
+
+Bitwise operators require Int operands.
+
+error: type mismatch
+  ╭─ src/main.pooka:4:11
+  │
+4 │   let b = 1.5 & 2
+  │           ─┬───┬─
+  │            │   ╰─ expected Int
+  │            ╰─ found Float
+  ╰─
+
+Bitwise operators require Int operands.
+
+Found 3 errors.
+

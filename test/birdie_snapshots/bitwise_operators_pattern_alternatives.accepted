@@ -1,0 +1,29 @@
+---
+version: 2.0.2
+title: bitwise operators: pattern alternatives
+file: ./test/bitwise_operator_test.gleam
+test_name: pattern_alternatives_snapshot_test
+---
+Source:
+module main
+
+size(v: Int) -> String {
+  match v {
+    1 | 2 | 3 -> "small"
+    _ -> "big"
+  }
+}
+
+---
+error: patterns cannot be combined with `|`
+  ╭─ src/main.pooka:5:7
+  │
+5 │     1 | 2 | 3 -> "small"
+  │       ───┬───
+  │          ╰─ Pooka has no pattern alternatives
+  ╰─
+
+Write a separate match branch for each pattern. In expressions, `|` is bitwise OR.
+
+Found 1 error.
+

@@ -1,0 +1,13 @@
+---
+version: 2.0.2
+title: build OTP application resource
+file: ./test/build_layout_test.gleam
+test_name: otp_application_resource_snapshot_test
+---
+{application,app,
+             [{vsn,"0.1.0"},
+              {description,"A Pooka application"},
+              {modules,[pooka@app@@runtime,pooka@app@main]},
+              {registered,[]},
+              {applications,[kernel,stdlib]}]}.
+
