@@ -1,0 +1,31 @@
+---
+version: 2.0.2
+title: documentation code examples and navigation
+file: ./test/docs_test.gleam
+test_name: generated_comment_examples_preserve_indentation_and_ship_offline_assets_test
+---
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><title>main · api</title><script>(()=>{document.documentElement.classList.add('js');try{const t=localStorage.getItem('pooka-docs-theme');document.documentElement.dataset.theme=['light','dark'].includes(t)?t:matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}catch{document.documentElement.dataset.theme=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}})();</script><link rel="stylesheet" href="style.css"><script src="docs.js" defer></script></head><body>
+<a class="skip-link" href="#main">Skip to content</a><aside class="sidebar" id="sidebar"><header class="project-heading"><a href="index.html">api</a><div class="project-meta"><span>Documentation</span><span data-doc-version data-version="0.1.0" data-docs-url="https://api.hexdocs.pm/"><span class="version" data-version-current>v0.1.0</span><select class="version version-select" data-version-select aria-label="Documentation version" hidden></select></span></div></header><label class="search"><span class="sr-only">Search modules and APIs</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><input type="search" data-nav-search placeholder="Search documentation" autocomplete="off" aria-controls="module-navigation"><kbd aria-hidden="true">/</kbd></label><nav class="nav-scroll" aria-label="Documentation"><h2 class="nav-label">Pages</h2><a class="page-link" href="index.html">Overview</a><h2 class="nav-label">Modules</h2><div id="module-navigation"><details class="module-tree" data-module="main" data-current open><summary><a class="module-link" href="module-main.html" aria-current="page">main</a><span class="module-count">1</span></summary><div class="module-symbols"><div data-symbol-group><h3 class="symbol-group">Functions</h3><ul class="symbol-list"><li data-search="main answer function answer()"><a class="symbol-link" href="module-main.html#symbol-answer"><span class="symbol-icon" aria-hidden="true">ƒ</span><span>answer</span></a></li></ul></div></div></details>
+</div><p class="nav-empty" data-search-empty role="status" hidden>No matching modules or APIs.</p></nav></aside>
+<header class="topbar"><div class="breadcrumb"><span>api</span><span aria-hidden="true">/</span><strong>main</strong></div><div class="top-actions"><button type="button" class="theme-toggle" data-theme-toggle aria-label="Switch color theme" aria-pressed="false" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M20 15.5A8.5 8.5 0 0 1 8.5 4a8.5 8.5 0 1 0 11.5 11.5Z"/></svg><span class="theme-label">Theme</span></button><button type="button" class="menu-toggle" data-menu-toggle aria-label="Toggle navigation" aria-controls="sidebar" aria-expanded="false" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button></div></header>
+<div class="layout"><main id="main" tabindex="-1"><header class="page-heading"><p class="eyebrow">Module</p><h1>main</h1><span class="source">src/main.pooka</span></header>
+<div class="markdown-body module-doc"></div><section class="api-summary" aria-label="API summary"><h2>API reference</h2><ul class="summary-links"><li><a href="#symbol-answer"><small>function</small>answer</a></li></ul></section>
+<section class="api-entry" id="symbol-answer"><header class="entry-header"><div class="entry-title"><span class="kind-badge">function</span><h2>answer</h2><a class="permalink" href="#symbol-answer" aria-label="Link to answer">#</a></div><span class="source">src/main.pooka:12</span></header>
+<pre class="signature"><code><a href="module-main.html#symbol-answer">answer</a>()</code></pre>
+<div class="inferred"><span>INFERRED</span><code>fn() -&gt; Int</code></div>
+<div class="markdown-body"><h1 id="symbol-answer-0-example">Example</h1>
+<div class="code-example"><div class="code-toolbar"><span>Pooka</span><button type="button" class="copy-code" data-copy-code hidden>Copy code</button></div><pre><code class="language-pooka"><span class="syntax-keyword">let</span> read = <span class="syntax-keyword">fn</span>() {
+  <span class="syntax-keyword">echo</span> <span class="syntax-string">&quot;Pooka&quot;</span>
+}
+</code></pre></div>
+<ul>
+<li>A parent
+<ul>
+<li>A child</li>
+</ul>
+</li>
+</ul>
+</div></section>
+</main><aside class="contents" aria-label="On this page"><h2>On this page</h2><ul><li><a href="#symbol-answer">answer</a></li></ul></aside></div></body></html>
+

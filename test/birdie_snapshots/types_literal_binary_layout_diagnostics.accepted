@@ -1,0 +1,31 @@
+---
+version: 2.0.2
+title: types literal binary layout diagnostics
+file: ./test/bit_array_validation_test.gleam
+test_name: nested_literal_layout_diagnostics_snapshot_test
+---
+error: unaligned bit-array segment
+  ╭─ src/main.pooka:4:3
+  │
+4 │ <<<<1:1>>:bytes>>
+  │   ──────┬──────
+  │         ╰─ the payload length is not divisible by this segment's unit
+  ╰─
+
+Use a compatible unit or a bit segment for this payload.
+
+Found 1 error.
+
+---
+error: bit-array payload is too short
+  ╭─ src/main.pooka:4:3
+  │
+4 │ <<<<1>>:bytes-size(2)>>
+  │   ─────────┬─────────
+  │            ╰─ the requested segment is longer than the literal payload
+  ╰─
+
+Reduce the segment size or provide a longer payload.
+
+Found 1 error.
+

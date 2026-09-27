@@ -1,0 +1,70 @@
+---
+version: 2.0.2
+title: types bit array validation diagnostics
+file: ./test/bit_array_validation_test.gleam
+test_name: bit_array_validation_diagnostics_snapshot_test
+---
+error: duplicate bit-array option
+  ╭─ src/main.pooka:4:9
+  │
+4 │ <<1:big-little>>
+  │         ───┬──
+  │            ╰─ this segment already specifies endianness
+  ╰─
+
+Specify each size, unit, signedness and endianness once.
+
+Found 1 error.
+
+---
+error: incompatible bit-array option
+  ╭─ src/main.pooka:4:12
+  │
+4 │ <<"x":utf8-size(8)>>
+  │            ───┬───
+  │               ╰─ this option does not apply to the segment representation
+  ╰─
+
+UTF segments determine their own size.
+
+Found 1 error.
+
+---
+error: invalid float segment size
+  ╭─ src/main.pooka:4:13
+  │
+4 │ <<1.0:float-size(8)>>
+  │             ───┬───
+  │                ╰─ size multiplied by unit must be 16, 32 or 64 bits
+  ╰─
+
+BEAM float segments use 16, 32 or 64 bits.
+
+Found 1 error.
+
+---
+error: bit-array segment unit must be constant
+  ╭─ src/main.pooka:4:16
+  │
+4 │ fn(unit) { <<1:unit(unit)>> }
+  │                ─────┬────
+  │                     ╰─ this unit cannot be evaluated at compile time
+  ╰─
+
+Use constant integer arithmetic for the unit; use size(...) for a runtime segment width.
+
+Found 1 error.
+
+---
+error: unsized binary segment before the end of a pattern
+  ╭─ src/main.pooka:4:19
+  │
+4 │ fn(bytes) { let <<rest:bits, value:8>> = bytes
+  │                   ────┬────
+  │                       ╰─ this segment consumes the remaining input
+  ╰─
+
+Give this segment an explicit size or place it last.
+
+Found 1 error.
+
