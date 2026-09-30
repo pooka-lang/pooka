@@ -1,0 +1,43 @@
+---
+version: 2.0.2
+title: concise classes: missing types and explicit constructors
+file: ./test/concise_class_test.gleam
+test_name: invalid_concise_classes_snapshot_test
+---
+Source:
+module main
+
+class User(name: String, age) {
+  new(name, age) {
+    self.name = name
+  }
+}
+
+---
+error: concise class fields need a type
+  ╭─ src/main.pooka:3:26
+  │
+3 │ class User(name: String, age) {
+  │                          ─┬─
+  │                           ╰─ `age` has no type
+  ╰─
+
+Each field of a concise class becomes an immutable field, so it is written `name: Type`.
+
+error: concise classes cannot declare `new`
+  ╭─ src/main.pooka:4:3
+  │
+4 │   new(name, age) {
+  │   ────────┬───────
+  │           ╰─ the constructor is generated from the fields
+5 │     self.name = name
+6 │   }
+  │   ─
+  ╰─
+
+`User` declares its fields after its name, so Pooka generates a constructor that assigns them. Custom construction needs the full class form.
+
+help: Declare the fields with `let` in the body and write `new` yourself.
+
+Found 2 errors.
+
