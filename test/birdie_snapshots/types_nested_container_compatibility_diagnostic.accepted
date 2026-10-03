@@ -1,0 +1,19 @@
+---
+version: 2.0.2
+title: types_nested_container_compatibility_diagnostic
+file: ./test/container_compatibility_test.gleam
+test_name: nested_container_error_diagnostic_test
+---
+error: type mismatch
+  ╭─ src/main.pooka:5:41
+  │
+5 │ main() { let value: List(Option(Tmp)) = [Some(Con(1))]
+  │                     ────────┬────────   ───────┬──────
+  │                             │                  ╰─ found main.Con
+  │                             ╰─ expected main.Tmp
+  ╰─
+
+The binding must match its type annotation.
+
+Found 1 error.
+

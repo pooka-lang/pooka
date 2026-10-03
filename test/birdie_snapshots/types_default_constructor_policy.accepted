@@ -1,0 +1,33 @@
+---
+version: 2.0.2
+title: types default constructor policy
+file: ./test/constructor_policy_test.gleam
+test_name: default_constructor_policy_diagnostics_snapshot_test
+---
+error: parent constructor requires explicit arguments
+  ╭─ src/main.pooka:4:7
+  │
+2 │ class Parent { let value: Int
+  │       ───┬──
+  │          ╰─ The parent constructor requires 1 argument.
+3 │ new(value) { self.value = value } }
+4 │ class Child is Parent {}
+  │       ──┬──
+  │         ╰─ This subclass has no constructor to supply the parent's arguments.
+  ╰─
+
+help: Declare new(...) in the subclass and call super.new(...) with the required arguments.
+
+error: fields require an explicit constructor
+  ╭─ src/main.pooka:5:7
+  │
+5 │ actor Missing { var count: Int }
+  │       ───┬───       ──┬──
+  │          │            ╰─ `count` has no default initializer
+  │          ╰─ A zero-argument implicit constructor cannot initialize these fields.
+  ╰─
+
+help: Declare new(...) and initialize each field exactly once using self.field = value.
+
+Found 2 errors.
+
