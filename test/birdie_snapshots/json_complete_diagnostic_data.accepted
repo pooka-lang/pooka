@@ -1,0 +1,7 @@
+---
+version: 2.0.2
+title: json: complete diagnostic data
+file: ./test/diagnostic_json_test.gleam
+test_name: diagnostic_data_snapshot_test
+---
+{"version":1,"diagnostics":[{"id":"test.structured","severity":"error","title":"quotes \" and newline\n","labels":[{"location":{"path":"src/quoted\".pooka","start":{"line":1,"column":2,"byte_offset":2},"end":{"line":2,"column":2,"byte_offset":5}},"message":"primary\tlabel","importance":"primary"},{"location":{"path":"other.pooka","start":{"line":1,"column":1,"byte_offset":0},"end":{"line":1,"column":4,"byte_offset":3}},"message":"context","importance":"secondary"}],"conclusion":"Unicode: λ 🫎","notes":["a note"],"suggestions":["a suggestion"],"fixes":[{"location":{"path":"src/quoted\".pooka","start":{"line":1,"column":2,"byte_offset":2},"end":{"line":2,"column":2,"byte_offset":5}},"replacement":"\"\\\n\t","description":"automatic edit","applicability":"automatic"},{"location":{"path":"src/quoted\".pooka","start":{"line":1,"column":2,"byte_offset":2},"end":{"line":2,"column":2,"byte_offset":5}},"replacement":"","description":"suggested deletion","applicability":"suggested"},{"location":{"path":"src/quoted\".pooka","start":{"line":1,"column":2,"byte_offset":2},"end":{"line":2,"column":2,"byte_offset":5}},"replacement":"?","description":"uncertain edit","applicability":"uncertain"}]}],"summary":{"errors":1,"warnings":0,"notices":0}}

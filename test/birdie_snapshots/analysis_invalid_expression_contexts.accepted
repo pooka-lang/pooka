@@ -1,0 +1,63 @@
+---
+version: 2.0.2
+title: analysis: invalid expression contexts
+file: ./test/context_test.gleam
+test_name: context_diagnostics_snapshot_test
+---
+Source:
+module main
+external Store from erlang "store" {
+  load() -> Result(Int, String)
+}
+class User {
+  new() { Store.load()? }
+  get() { self.name }
+}
+f() { continue }
+actor Counter {
+  be increment() -> Int { 1 }
+}
+
+---
+error: result propagation outside a function
+  ╭─ src/main.pooka:6:11
+  │
+6 │   new() { Store.load()? }
+  │           ──────┬──────
+  │                 ╰─ this expression is not valid here
+  ╰─
+
+`?` must be inside a function or ordinary method returning Result. Constructors, behaviours, field initializers and tests cannot propagate a Result.
+
+error: self outside a constructor
+  ╭─ src/main.pooka:7:11
+  │
+7 │   get() { self.name }
+  │           ──┬─
+  │             ╰─ this expression is not valid here
+  ╰─
+
+Explicit `self` is only available during construction. Ordinary methods access fields and methods by name.
+
+error: continue outside a loop
+  ╭─ src/main.pooka:9:7
+  │
+9 │ f() { continue }
+  │       ────┬───
+  │           ╰─ this expression is not valid here
+  ╰─
+
+`continue` needs an enclosing loop in the same callable. An anonymous function cannot control its caller's loop.
+
+error: behaviour result must be Nil
+   ╭─ src/main.pooka:11:6
+   │
+11 │   be increment() -> Int { 1 }
+   │      ────┬────
+   │          ╰─ this expression is not valid here
+   ╰─
+
+An asynchronous behaviour has no reply value. Its result annotation may only be `Nil`.
+
+Found 4 errors.
+
