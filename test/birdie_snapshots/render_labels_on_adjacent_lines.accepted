@@ -1,0 +1,21 @@
+---
+version: 2.0.2
+title: render: labels on adjacent lines
+file: ./test/diagnostic_test.gleam
+test_name: labels_on_separate_lines_rendering_test
+---
+error: cannot assign to an immutable binding
+  ╭─ src/main.pooka:2:1
+  │
+1 │ let count = 0
+  │     ────┬────
+  │         ╰─ `count` is declared here
+2 │ count = 1
+  │ ────┬────
+  │     ╰─ assignment attempted here
+  ╰─
+
+`count` cannot be assigned another value.
+
+note: Local bindings in Pooka are immutable.
+

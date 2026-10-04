@@ -1,0 +1,25 @@
+---
+version: 2.0.2
+title: render: labels in two files
+file: ./test/diagnostic_test.gleam
+test_name: multiple_files_rendering_test
+---
+error: method does not satisfy interface
+
+  ╭─ src/user.pooka:2:3
+  │
+2 │   encode() -> String {
+  │   ─────────┬────────
+  │            ╰─ implementation returns String
+  ╰─
+
+  ╭─ src/encoder.pooka:2:3
+  │
+2 │   encode() -> BitArray
+  │   ──────────┬─────────
+  │             ╰─ required by `Encoder`
+  ╰─
+
+Expected: fn() -> BitArray
+   Found: fn() -> String
+

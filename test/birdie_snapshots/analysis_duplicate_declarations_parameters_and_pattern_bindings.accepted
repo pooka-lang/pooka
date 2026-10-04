@@ -1,0 +1,52 @@
+---
+version: 2.0.2
+title: analysis: duplicate declarations parameters and pattern bindings
+file: ./test/duplicate_test.gleam
+test_name: duplicate_diagnostics_snapshot_test
+---
+Source:
+module main
+convert(value: Int) { value }
+convert(value: String) { value }
+f(pair, pair) {
+  let #(x, Some(x)) = pair
+}
+
+---
+error: duplicate declaration
+  ╭─ src/main.pooka:3:1
+  │
+2 │ convert(value: Int) { value }
+  │ ───┬───
+  │    ╰─ first declared here
+3 │ convert(value: String) { value }
+  │ ───┬───
+  │    ╰─ `convert` is declared again here
+  ╰─
+
+The name `convert` may appear only once in this declaration scope.
+
+error: duplicate parameter
+  ╭─ src/main.pooka:4:9
+  │
+4 │ f(pair, pair) {
+  │   ──┬─  ──┬─
+  │     │     ╰─ `pair` is declared again here
+  │     ╰─ first declared here
+  ╰─
+
+The name `pair` may appear only once in this parameter scope.
+
+error: duplicate pattern binding
+  ╭─ src/main.pooka:5:17
+  │
+5 │   let #(x, Some(x)) = pair
+  │         ┬       ┬
+  │         │       ╰─ `x` is declared again here
+  │         ╰─ first declared here
+  ╰─
+
+The name `x` may appear only once in this pattern binding scope.
+
+Found 3 errors.
+

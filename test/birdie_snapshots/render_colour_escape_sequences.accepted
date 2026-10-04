@@ -1,0 +1,19 @@
+---
+version: 2.0.2
+title: render: colour escape sequences
+file: ./test/diagnostic_test.gleam
+test_name: coloured_rendering_test
+---
+<ESC>[1;38;2;217;91;23merror<ESC>[0m<ESC>[1m: incompatible types<ESC>[0m
+  <ESC>[38;2;117;97;142m╭─<ESC>[0m <ESC>[38;2;255;182;75msrc/main.pooka:1:16<ESC>[0m
+  <ESC>[38;2;117;97;142m│<ESC>[0m
+<ESC>[38;2;117;97;142m1 │<ESC>[0m let age: Int = "42"
+  <ESC>[38;2;117;97;142m│<ESC>[0m          <ESC>[38;2;117;97;142m─┬─<ESC>[0m   <ESC>[1;38;2;217;91;23m──┬─<ESC>[0m
+  <ESC>[38;2;117;97;142m│<ESC>[0m           <ESC>[38;2;117;97;142m│<ESC>[0m      <ESC>[1;38;2;217;91;23m╰─ this is a String<ESC>[0m
+  <ESC>[38;2;117;97;142m│<ESC>[0m           <ESC>[38;2;117;97;142m╰─ declared here<ESC>[0m
+  <ESC>[38;2;117;97;142m╰─<ESC>[0m
+
+<ESC>[1;38;2;117;97;142mnote:<ESC>[0m A note.
+
+<ESC>[1;38;2;255;182;75mhelp:<ESC>[0m Some help.
+

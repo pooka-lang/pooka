@@ -1,0 +1,18 @@
+---
+version: 2.0.2
+title: render: basic diagnostic
+file: ./test/diagnostic_test.gleam
+test_name: basic_rendering_test
+---
+error: unknown name
+  ╭─ src/main.pooka:4:3
+  │
+4 │   pritn("Hello")
+  │   ──┬──
+  │     ╰─ `pritn` is not defined in this scope
+  ╰─
+
+Could not find `pritn`.
+
+help: Did you mean `print`?
+

@@ -1,0 +1,9 @@
+---
+version: 2.0.2
+title: render: a label whose file is not available
+file: ./test/diagnostic_test.gleam
+test_name: missing_source_rendering_test
+---
+error: unknown name
+  ╭─ src/missing.pooka:1:2
+

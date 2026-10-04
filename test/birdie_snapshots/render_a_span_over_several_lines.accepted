@@ -1,0 +1,19 @@
+---
+version: 2.0.2
+title: render: a span over several lines
+file: ./test/diagnostic_test.gleam
+test_name: multiline_span_rendering_test
+---
+error: non-exhaustive match
+  ╭─ src/main.pooka:2:3
+  │
+2 │   match option {
+  │   ───────┬──────
+  │          ╰─ this match does not handle every possible value
+3 │     Some(value) -> value
+4 │   }
+  │   ─
+  ╰─
+
+Missing pattern: `None`
+

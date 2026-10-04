@@ -1,0 +1,20 @@
+---
+version: 2.0.2
+title: render: distant labels with a gap
+file: ./test/diagnostic_test.gleam
+test_name: distant_labels_rendering_test
+---
+error: incorrect arity
+  ╭─ src/main.pooka:5:1
+  │
+1 │ add(a: Int, b: Int) {
+  │ ─┬─
+  │  ╰─ `add` is defined with 2 parameters
+  ·
+5 │ add(1)
+  │ ───┬──
+  │    ╰─ only 1 argument is provided
+  ╰─
+
+Expected 2 arguments, but found 1.
+

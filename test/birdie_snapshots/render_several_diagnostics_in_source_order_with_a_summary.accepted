@@ -1,0 +1,24 @@
+---
+version: 2.0.2
+title: render: several diagnostics in source order with a summary
+file: ./test/diagnostic_test.gleam
+test_name: render_all_rendering_test
+---
+error: first problem
+  ╭─ src/main.pooka:1:5
+  │
+1 │ let a = 1
+  │     ┬
+  │     ╰─ problem
+  ╰─
+
+warning: unused binding
+  ╭─ src/main.pooka:2:5
+  │
+2 │ let b = 2
+  │     ┬
+  │     ╰─ never used
+  ╰─
+
+Found 1 error and 1 warning.
+
