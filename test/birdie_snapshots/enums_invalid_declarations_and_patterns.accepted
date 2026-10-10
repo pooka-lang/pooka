@@ -1,0 +1,110 @@
+---
+version: 2.0.2
+title: enums: invalid declarations and patterns
+file: ./test/enum_parser_test.gleam
+test_name: invalid_enums_snapshot_test
+---
+Source:
+module main
+
+enum Box(a) is Thing {
+  Full(Int)
+  Empty
+  let x = 1
+  describe() { "box" }
+}
+
+enum Nothing {}
+
+enum Light { Red, Red }
+
+class Loud is Light {}
+
+main() {
+  match Light.Red {
+    Light.Red() -> 1
+    _ -> 2
+  }
+}
+
+---
+error: enums cannot be generic
+  ╭─ src/main.pooka:3:9
+  │
+3 │ enum Box(a) is Thing {
+  │         ─┬─
+  │          ╰─ type parameters are not allowed here
+  ╰─
+
+`Box` is an enum: its variants carry no data, so it has nothing to be generic over.
+
+error: enums cannot inherit
+  ╭─ src/main.pooka:3:13
+  │
+3 │ enum Box(a) is Thing {
+  │             ────┬───
+  │                 ╰─ enums have no superclass or interfaces
+  ╰─
+
+`Box` is an enum: a closed set of values. It cannot extend a class or implement an interface.
+
+error: enum variants carry no data
+  ╭─ src/main.pooka:4:3
+  │
+4 │   Full(Int)
+  │   ────┬────
+  │       ╰─ `Full` cannot hold values
+  ╰─
+
+An enum variant is a single named value. When alternatives need different data, use a closed class hierarchy instead.
+
+help: Write `class Full(...) is Base` for each alternative that carries data.
+
+error: enums contain only variants
+  ╭─ src/main.pooka:6:3
+  │
+6 │   let x = 1
+  │   ────┬────
+  │       ╰─ expected a variant name
+  ╰─
+
+The body of `Box` may only list variant names, such as `Error`. Enums have no fields, constructors or methods.
+
+help: Write functions that take the enum as a parameter, or use a class.
+
+error: enums contain only variants
+  ╭─ src/main.pooka:7:3
+  │
+7 │   describe() { "box" }
+  │   ──────────┬─────────
+  │             ╰─ expected a variant name
+  ╰─
+
+The body of `Box` may only list variant names, such as `Error`. Enums have no fields, constructors or methods.
+
+help: Write functions that take the enum as a parameter, or use a class.
+
+error: empty enum
+   ╭─ src/main.pooka:10:6
+   │
+10 │ enum Nothing {}
+   │      ───┬───
+   │         ╰─ this enum has no variants
+   ╰─
+
+`Nothing` has no values, so no value of it could ever exist.
+
+help: List at least one variant, such as `Error`.
+
+error: enum patterns take no arguments
+   ╭─ src/main.pooka:18:14
+   │
+18 │     Light.Red() -> 1
+   │              ─┬
+   │               ╰─ remove these parentheses
+   ╰─
+
+`Light.Red` is a value, not a constructor, so it is matched as written.
+
+Found 7 errors.
+

@@ -1,0 +1,75 @@
+---
+version: 2.0.2
+title: enums: type errors
+file: ./test/enum_semantics_test.gleam
+test_name: enum_type_errors_snapshot_test
+---
+Source:
+module main
+enum Severity {
+  Error
+  Warning
+  Notice
+}
+describe(severity: Severity) -> String {
+  match severity {
+    Severity.Error -> "error"
+    Severity.Warning -> "warning"
+  }
+}
+main() {
+  let a = Severity.Eror
+  let b = Severity.Error()
+  let c = Severity
+  describe(Severity.Notice)
+}
+
+---
+error: non-exhaustive match
+  ╭─ src/main.pooka:8:9
+  │
+8 │   match severity {
+  │         ────┬───
+  │             ╰─ not every main.Severity value is handled
+  ╰─
+
+Every possible value of the matched type must be handled.
+
+help: Handle `Severity.Notice` or add a fallback branch.
+
+error: unknown enum variant
+   ╭─ src/main.pooka:14:20
+   │
+14 │   let a = Severity.Eror
+   │                    ──┬─
+   │                      ╰─ `Severity` has no variant named `Eror`
+   ╰─
+
+The variants of `Severity` are `Error`, `Warning`, `Notice`.
+
+help: Did you mean `Severity.Error`?
+
+error: enum variant called
+   ╭─ src/main.pooka:15:25
+   │
+15 │   let b = Severity.Error()
+   │                         ─┬
+   │                          ╰─ remove these parentheses
+   ╰─
+
+`Severity.Error` is a value, not a constructor, so it is used without parentheses.
+
+help: Write `Severity.Error`.
+
+error: enum used as a value
+   ╭─ src/main.pooka:16:11
+   │
+16 │   let c = Severity
+   │           ────┬───
+   │               ╰─ `Severity` is an enum type
+   ╰─
+
+Select one of its variants such as `Severity.Error`.
+
+Found 4 errors.
+

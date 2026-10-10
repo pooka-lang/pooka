@@ -1,0 +1,11 @@
+---
+version: 2.0.2
+title: echo source metadata and clean syntax
+file: ./test/echo_test.gleam
+test_name: echo_debug_metadata_and_clean_values_are_preserved_in_real_output_test
+---
+src/main.pooka:5
+#("hello", True, Some(2), Error("invalid port"))
+src/main.pooka:6
+Box("Pooka")
+

@@ -1,0 +1,48 @@
+---
+version: 2.0.2
+title: enums: duplicate variants and enum superclasses
+file: ./test/enum_semantics_test.gleam
+test_name: enum_analysis_errors_snapshot_test
+---
+Source:
+module main
+
+enum Light {
+  Red
+  Green
+  Red
+}
+
+class Loud is Light {}
+
+---
+error: duplicate enum variant
+  ╭─ src/main.pooka:6:3
+  │
+4 │   Red
+  │   ─┬─
+  │    ╰─ first declared here
+5 │   Green
+6 │   Red
+  │   ─┬─
+  │    ╰─ `Red` is declared again here
+  ╰─
+
+Each variant may appear only once in an enum, so `Red` would name two values.
+
+error: superclass is not a class
+  ╭─ src/main.pooka:9:15
+  │
+3 │ enum Light {
+  │      ──┬──
+  │        ╰─ `Light` is an enum
+  ·
+9 │ class Loud is Light {}
+  │               ──┬──
+  │                 ╰─ only a local class can be inherited
+  ╰─
+
+Actors, enums, interfaces, external namespaces, primitive types, tuples, functions and generic variables cannot be superclasses.
+
+Found 2 errors.
+
