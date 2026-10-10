@@ -1,0 +1,63 @@
+---
+version: 2.0.2
+title: types match coverage and unreachable branches
+file: ./test/exhaustiveness_test.gleam
+test_name: coverage_diagnostics_snapshot_test
+---
+error: non-exhaustive match
+  ╭─ src/main.pooka:4:7
+  │
+4 │ match Some(True) { None -> 0
+  │       ─────┬────
+  │            ╰─ not every Option(Bool) value is handled
+  ╰─
+
+Every possible value of the matched type must be handled.
+
+help: Handle `Some(False)` or add a fallback branch.
+
+Found 1 error.
+
+---
+error: non-exhaustive match
+  ╭─ src/main.pooka:4:7
+  │
+4 │ match #(True, False) { #(True, _) -> 1
+  │       ───────┬──────
+  │              ╰─ not every #(Bool, Bool) value is handled
+  ╰─
+
+Every possible value of the matched type must be handled.
+
+help: Handle `#(False, False)` or add a fallback branch.
+
+Found 1 error.
+
+---
+error: non-exhaustive match
+  ╭─ src/main.pooka:4:7
+  │
+4 │ match [True] { [] -> 0
+  │       ───┬──
+  │          ╰─ not every List(Bool) value is handled
+  ╰─
+
+Every possible value of the matched type must be handled.
+
+help: Handle `[True, _, ..]` or add a fallback branch.
+
+Found 1 error.
+
+---
+warning: unreachable pattern
+  ╭─ src/main.pooka:5:1
+  │
+5 │ True -> 1 }
+  │ ──┬─
+  │   ╰─ earlier unguarded branches already cover this pattern
+  ╰─
+
+This match branch can never be selected.
+
+Found 1 warning.
+

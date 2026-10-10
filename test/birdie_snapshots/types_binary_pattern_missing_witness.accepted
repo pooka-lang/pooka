@@ -1,0 +1,32 @@
+---
+version: 2.0.2
+title: types binary pattern missing witness
+file: ./test/exhaustiveness_test.gleam
+test_name: binary_missing_witness_snapshot_test
+---
+[
+  Diagnostic(
+    "type.non_exhaustive_match",
+    ErrorSeverity,
+    "non-exhaustive match",
+    [
+      Label(
+        Location(
+          "src/main.pooka",
+          Span(
+            Position(4, 7, 31),
+            Position(4, 11, 35),
+          ),
+        ),
+        "not every BitArray value is handled",
+        Primary,
+      ),
+    ],
+    "Every possible value of the matched type must be handled.",
+    [],
+    [
+      "Handle `<<1:1>>` or add a fallback branch.",
+    ],
+    [],
+  ),
+]
