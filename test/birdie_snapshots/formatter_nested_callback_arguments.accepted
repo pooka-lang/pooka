@@ -1,0 +1,22 @@
+---
+version: 2.0.2
+title: formatter_nested_callback_arguments
+file: ./test/formatter_layout_test.gleam
+test_name: nested_multistatement_callback_followed_by_callback_test
+---
+module main
+
+apply(x: Int, f: fn(Int) -> Int) -> Int {
+  f(x)
+}
+
+main() -> Int {
+  apply(
+    apply(1, fn(a) {
+      let b = a
+      b
+    }),
+    fn(c) { c }
+  )
+}
+

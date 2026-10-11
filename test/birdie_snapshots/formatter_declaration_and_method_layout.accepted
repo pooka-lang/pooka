@@ -1,0 +1,34 @@
+---
+version: 2.0.2
+title: formatter: declaration and method layout
+file: ./test/formatter_layout_test.gleam
+test_name: layout_snapshot_test
+---
+module main
+
+import pooka/list
+
+class Counter {
+  let value: Int
+
+  new(value) {
+    self.value = value
+  }
+
+  /// Read.
+  get() {
+    value
+  }
+
+  map(f) {
+    match f(value) {
+      Some(x) -> x
+      None -> 0
+    }
+  }
+}
+
+main() {
+  list.map([Counter(1), Counter(2)], fn(counter: Counter) { counter.get() })
+}
+

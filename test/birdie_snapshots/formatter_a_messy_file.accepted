@@ -1,0 +1,30 @@
+---
+version: 2.0.2
+title: formatter: a messy file
+file: ./test/formatter_test.gleam
+test_name: formatting_snapshot_test
+---
+//// A messy file.
+module main
+
+import io
+
+class Animal {
+  let name: String
+
+  new(name) {
+    self.name = name
+  }
+
+  speak() -> String {
+    "..."
+  }
+}
+
+main() {
+  let a = Animal("Rex")
+  match a {
+    Animal(n) -> io.println(n)
+  }
+}
+

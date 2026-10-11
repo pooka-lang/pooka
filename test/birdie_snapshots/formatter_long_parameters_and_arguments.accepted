@@ -1,0 +1,23 @@
+---
+version: 2.0.2
+title: formatter: long parameters and arguments
+file: ./test/formatter_layout_test.gleam
+test_name: wrapping_snapshot_test
+---
+module main
+
+calculate(
+  first_value: Int,
+  second_value: Int,
+  third_value: Int,
+  fourth_value: Int
+) -> Int {
+  combine(
+    first_value,
+    second_value,
+    third_value,
+    fourth_value,
+    "a long final argument for wrapping"
+  )
+}
+

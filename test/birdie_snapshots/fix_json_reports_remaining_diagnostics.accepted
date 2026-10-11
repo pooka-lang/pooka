@@ -1,0 +1,8 @@
+---
+version: 2.0.2
+title: fix: JSON reports remaining diagnostics
+file: ./test/fix_test.gleam
+test_name: suggested_fixes_are_left_for_review_test
+---
+{"version":1,"diagnostics":[{"id":"module.name_mismatch","severity":"error","title":"module name does not match its file","labels":[{"location":{"path":"src/main.pooka","start":{"line":1,"column":8,"byte_offset":7},"end":{"line":1,"column":13,"byte_offset":12}},"message":"this declares module `wrong`","importance":"primary"}],"conclusion":"`src/main.pooka` must declare `module main`.","notes":["A module is named after its file, without `.pooka`."],"suggestions":[],"fixes":[{"location":{"path":"src/main.pooka","start":{"line":1,"column":8,"byte_offset":7},"end":{"line":1,"column":13,"byte_offset":12}},"replacement":"main","description":"Rename the module","applicability":"suggested"}]}],"summary":{"errors":1,"warnings":0,"notices":0}}
+
