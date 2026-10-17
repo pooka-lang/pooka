@@ -1,0 +1,34 @@
+---
+version: 2.0.2
+title: types: inheritance diagnostics
+file: ./test/inheritance_semantics_test.gleam
+test_name: inheritance_diagnostics_snapshot_test
+---
+error: incompatible method override
+  ╭─ src/main.pooka:3:23
+  │
+2 │ class Animal { speak() -> String { "..." } }
+  │                ──┬──
+  │                  ╰─ inherited method
+3 │ class Dog is Animal { speak() -> Int { 42 } }
+  │                       ──┬──
+  │                         ╰─ overriding method
+  ╰─
+
+Expected: fn() -> String
+   Found: fn() -> Int
+
+error: class cannot be constructed directly
+  ╭─ src/main.pooka:6:10
+  │
+6 │ main() { Shape() }
+  │          ──┬──
+  │            ╰─ `Shape` has subclasses and no `new`
+  ╰─
+
+Only the subclasses of `Shape` can be constructed.
+
+help: Construct one of its subclasses, or declare `new` in `Shape`.
+
+Found 2 errors.
+

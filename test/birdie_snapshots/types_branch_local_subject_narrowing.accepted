@@ -1,0 +1,24 @@
+---
+version: 2.0.2
+title: types: branch local subject narrowing
+file: ./test/inheritance_semantics_test.gleam
+test_name: branch_local_subject_narrowing_diagnostics_snapshot_test
+---
+error: unknown class member
+  ╭─ src/main.pooka:8:19
+  │
+8 │     Cat -> animal.bark()
+  │                   ──┬─
+  │                     ╰─ The class declares no field or method with this name.
+  ╰─
+
+error: unknown class member
+   ╭─ src/main.pooka:10:10
+   │
+10 │   animal.bark()
+   │          ──┬─
+   │            ╰─ The class declares no field or method with this name.
+   ╰─
+
+Found 2 errors.
+

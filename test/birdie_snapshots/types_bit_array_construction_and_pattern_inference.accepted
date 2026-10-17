@@ -1,0 +1,10 @@
+---
+version: 2.0.2
+title: types: bit array construction and pattern inference
+file: ./test/infer_test.gleam
+test_name: bit_array_inference_snapshot_test
+---
+#(
+  "fn(BitArray) -> #(Int, BitArray)",
+  [],
+)

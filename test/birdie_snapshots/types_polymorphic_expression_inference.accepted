@@ -1,0 +1,7 @@
+---
+version: 2.0.2
+title: types: polymorphic expression inference
+file: ./test/infer_test.gleam
+test_name: polymorphic_inference_snapshot_test
+---
+#("#(Int, String, Bool)", [])

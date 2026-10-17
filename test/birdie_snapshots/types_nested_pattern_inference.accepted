@@ -1,0 +1,10 @@
+---
+version: 2.0.2
+title: types: nested pattern inference
+file: ./test/infer_test.gleam
+test_name: pattern_inference_snapshot_test
+---
+#(
+  "fn(Option(Result(#(Int, a), b))) -> Int",
+  [],
+)

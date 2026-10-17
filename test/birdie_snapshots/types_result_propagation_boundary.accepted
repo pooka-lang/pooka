@@ -1,0 +1,10 @@
+---
+version: 2.0.2
+title: types: result propagation boundary
+file: ./test/infer_test.gleam
+test_name: propagation_inference_snapshot_test
+---
+#(
+  "fn(Result(a, b)) -> Result(#(a, Bool), b)",
+  [],
+)

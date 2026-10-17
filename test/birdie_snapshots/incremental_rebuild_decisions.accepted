@@ -1,0 +1,11 @@
+---
+version: 2.0.2
+title: incremental rebuild decisions
+file: ./test/incremental_test.gleam
+test_name: incremental_rebuild_decisions_snapshot_test
+---
+cold: reused=False; rebuilt=[pooka@app@main]; foreign=[]; tests=0
+unchanged: reused=True; rebuilt=[]; foreign=[]; tests=0
+body changed: reused=False; rebuilt=[pooka@app@main]; foreign=[]; tests=0
+unchanged again: reused=True; rebuilt=[]; foreign=[]; tests=0
+
