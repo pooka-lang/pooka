@@ -1,0 +1,56 @@
+---
+version: 2.0.2
+title: analysis: import collisions and private declarations
+file: ./test/import_binding_test.gleam
+test_name: import_diagnostics_snapshot_test
+---
+Source:
+module main
+import account.{User, _secret as secret}
+import admin.{User}
+account() {}
+
+---
+error: private declaration imported
+  ╭─ src/main.pooka:2:23
+  │
+2 │ import account.{User, _secret as secret}
+  │                       ───┬───
+  │                          ╰─ `_secret` is private to its defining module
+  ╰─
+
+Declarations beginning with `_` cannot be imported, including under a public alias.
+
+error: import name collision
+  ╭─ src/main.pooka:3:15
+  │
+2 │ import account.{User, _secret as secret}
+  │                 ──┬─
+  │                   ╰─ first imported here
+3 │ import admin.{User}
+  │               ──┬─
+  │                 ╰─ `User` is introduced again here
+  ╰─
+
+The local name `User` is ambiguous in this module.
+
+help: Give the import a distinct alias with `as`, or remove the conflicting import.
+
+error: import name collision
+  ╭─ src/main.pooka:4:1
+  │
+2 │ import account.{User, _secret as secret}
+  │        ───┬───
+  │           ╰─ first imported here
+3 │ import admin.{User}
+4 │ account() {}
+  │ ───┬───
+  │    ╰─ `account` is introduced again here
+  ╰─
+
+The local name `account` is ambiguous in this module.
+
+help: Give the import a distinct alias with `as`, or remove the conflicting import.
+
+Found 3 errors.
+
