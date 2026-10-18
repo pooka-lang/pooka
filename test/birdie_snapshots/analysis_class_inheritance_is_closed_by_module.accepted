@@ -1,0 +1,29 @@
+---
+version: 2.0.2
+title: analysis: class inheritance is closed by module
+file: ./test/inheritance_test.gleam
+test_name: inheritance_diagnostic_snapshot_test
+---
+Source:
+module main
+import pets/animal.{Animal as Parent}
+class Dog is Parent {}
+
+---
+error: class inheritance crosses a module boundary
+  ╭─ src/main.pooka:3:14
+  │
+2 │ import pets/animal.{Animal as Parent}
+  │ ──────────────────┬──────────────────
+  │                   ╰─ imported here
+3 │ class Dog is Parent {}
+  │              ───┬──
+  │                 ╰─ `Parent` is imported from another module
+  ╰─
+
+A class may only inherit from a class declared in the same module.
+
+help: Declare subclasses alongside their parent, or use an interface with `with` for an open extension point.
+
+Found 1 error.
+

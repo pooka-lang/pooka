@@ -1,0 +1,37 @@
+---
+version: 2.0.2
+title: types: interface conformance
+file: ./test/interface_semantics_test.gleam
+test_name: conformance_diagnostics_snapshot_test
+---
+error: incomplete interface implementation
+  ╭─ src/main.pooka:3:7
+  │
+2 │ interface Printable { print() -> String }
+  │                       ──┬──
+  │                         ╰─ required method declared here
+3 │ class Missing with Printable {}
+  │       ───┬───
+  │          ╰─ `Missing` must implement `Printable.print`
+  ╰─
+
+Missing methods:
+    print: fn() -> String
+
+error: method does not satisfy interface
+  ╭─ src/main.pooka:4:30
+  │
+2 │ interface Printable { print() -> String }
+  │                       ──┬──
+  │                         ╰─ required by `Printable`
+3 │ class Missing with Printable {}
+4 │ class Wrong with Printable { print() { 42 } }
+  │                              ──┬──
+  │                                ╰─ implemented by `Wrong`
+  ╰─
+
+Expected: fn() -> String
+   Found: fn() -> Int
+
+Found 2 errors.
+

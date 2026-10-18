@@ -1,0 +1,49 @@
+---
+version: 2.0.2
+title: codegen open interface dispatch
+file: ./test/interface_semantics_test.gleam
+test_name: interface_dispatch_abstract_forms_snapshot_test
+---
+-module(pooka@app@main).
+-file("src/main.pooka", 1).
+-export(['$interface@call'/3,
+         render/1,
+         main/0,
+         '$class@User@new'/0,
+         '$class@User@print'/1]).
+'$interface@call'(Receiver = {pooka@class@main@User}, print, []) ->
+    '$class@User@print'(Receiver).
+'$class@User@new'() ->
+    M0 = {pooka@class@main@User},
+    nil,
+    M0.
+'$class@User@print'(M1) ->
+    begin <<"user"/utf8>> end.
+render(M3) ->
+    begin
+        M5 =
+            begin
+                M4 = M3,
+                fun() ->
+                       pooka_runtime_ffi:interface_call(app, M4, print,
+                                                        [])
+                end
+            end,
+        begin
+            M6 = M5,
+            M6()
+        end
+    end.
+main() ->
+    begin
+        begin
+            M8 = fun render/1,
+            M10 =
+                begin
+                    M9 = fun '$class@User@new'/0,
+                    M9()
+                end,
+            M8(M10)
+        end
+    end.
+

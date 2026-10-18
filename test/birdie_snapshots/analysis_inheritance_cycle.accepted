@@ -1,0 +1,31 @@
+---
+version: 2.0.2
+title: analysis: inheritance cycle
+file: ./test/inheritance_test.gleam
+test_name: inheritance_cycle_snapshot_test
+---
+Source:
+module main
+class A is B {}
+class B is C {}
+class C is A {}
+
+---
+error: circular class inheritance
+  ╭─ src/main.pooka:4:12
+  │
+2 │ class A is B {}
+  │            ┬
+  │            ╰─ `A` inherits from `B`
+3 │ class B is C {}
+  │            ┬
+  │            ╰─ `B` inherits from `C`
+4 │ class C is A {}
+  │            ┬
+  │            ╰─ `C` inherits from `A`
+  ╰─
+
+Classes form an inheritance cycle: A -> B -> C -> A.
+
+Found 1 error.
+

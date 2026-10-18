@@ -1,0 +1,51 @@
+---
+version: 2.0.2
+title: analysis: constructor initialization across branches
+file: ./test/initialization_test.gleam
+test_name: constructor_flow_snapshot_test
+---
+Source:
+module main
+class User {
+  let x: Int
+  let y: Int
+  new(flag) {
+    match flag {
+      True -> { self.x = 1 }
+      False -> Nil
+    }
+    self.x = 2
+  }
+}
+
+---
+error: field initialized more than once
+   ╭─ src/main.pooka:10:5
+   │
+3  │   let x: Int
+   │       ┬
+   │       ╰─ field declared here
+   ·
+10 │     self.x = 2
+   │     ─────┬────
+   │          ╰─ `x` may already be initialized
+   ╰─
+
+Constructor initialization must assign each field exactly once.
+
+error: field is not initialized on every constructor path
+   ╭─ src/main.pooka:11:4
+   │
+4  │   let y: Int
+   │       ┬
+   │       ╰─ field declared here
+   ·
+11 │   }
+   │    ┬
+   │    ╰─ construction can complete without initializing `y`
+   ╰─
+
+Initialize `y` exactly once on every path that completes construction.
+
+Found 2 errors.
+
