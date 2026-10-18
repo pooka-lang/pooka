@@ -1,0 +1,80 @@
+---
+version: 2.0.2
+title: codegen typed iteration abstract forms
+file: ./test/iteration_semantics_test.gleam
+test_name: iteration_abstract_forms_snapshot_test
+---
+-module(pooka@app@main).
+-file("src/main.pooka", 1).
+-export([main/0]).
+main() ->
+    begin
+        begin
+            M2 =
+                begin
+                    M0 = 1,
+                    M1 = 2,
+                    [M0, M1]
+                end,
+            M18 =
+                fun Iteration3(M4, M5) ->
+                        case
+                            pooka_runtime_ffi:iteration_next(app, M4,
+                                                             list)
+                        of
+                            none ->
+                                pooka_runtime_ffi:iteration_exhausted();
+                            {some, M7, M6} ->
+                                case
+                                    try
+                                        begin
+                                            M8 = M7,
+                                            begin
+                                                M11 =
+                                                    fun() ->
+                                                           begin
+                                                               M10 =
+                                                                   fun() ->
+                                                                          error(pooka_match_failure)
+                                                                   end,
+                                                               case
+                                                                   M8
+                                                               of
+                                                                   _ ->
+                                                                       begin
+                                                                           M9 =
+                                                                               M7,
+                                                                           pooka_runtime_ffi:break(M9)
+                                                                       end;
+                                                                   _ ->
+                                                                       M10()
+                                                               end
+                                                           end
+                                                    end,
+                                                case M8 of
+                                                    1 ->
+                                                        pooka_runtime_ffi:continue();
+                                                    _ ->
+                                                        M11()
+                                                end
+                                            end
+                                        end,
+                                        {continue, M5}
+                                    catch
+                                        throw:{pooka_break, M12} ->
+                                            {done, M12, M5};
+                                        throw:pooka_continue ->
+                                            {continue, M5}
+                                    end
+                                of
+                                    {continue, M15} ->
+                                        Iteration3(M6, M15);
+                                    {done, M16, M17} ->
+                                        {M16, M17}
+                                end
+                        end
+                end(M2, nil),
+            element(1, M18)
+        end
+    end.
+

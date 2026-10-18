@@ -1,0 +1,20 @@
+---
+version: 2.0.2
+title: analysis: unknown local imported declaration
+file: ./test/module_analysis_test.gleam
+test_name: unknown_local_import_diagnostic_snapshot_test
+---
+error: unknown imported declaration
+  ╭─ src/main.pooka:2:17
+  │
+2 │ import account.{Missing}
+  │                 ───┬───
+  │                    ╰─ `Missing` is not declared in `account`
+  ╰─
+
+Module `account` has no declaration named `Missing`.
+
+help: Check the declaration name or import it from the module that defines it.
+
+Found 1 error.
+

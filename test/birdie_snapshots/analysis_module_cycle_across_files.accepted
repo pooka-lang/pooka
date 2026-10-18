@@ -1,0 +1,28 @@
+---
+version: 2.0.2
+title: analysis: module cycle across files
+file: ./test/module_analysis_test.gleam
+test_name: cycle_diagnostic_snapshot_test
+---
+error: circular module dependency
+
+  ╭─ src/b.pooka:2:8
+  │
+2 │ import a
+  │        ┬
+  │        ╰─ `b` imports `a`
+  ╰─
+
+  ╭─ src/a.pooka:2:8
+  │
+2 │ import b
+  │        ┬
+  │        ╰─ `a` imports `b`
+  ╰─
+
+Module imports form a cycle: a -> b -> a.
+
+help: Move shared declarations into a module that neither side depends on, or remove an import from this cycle.
+
+Found 1 error.
+
