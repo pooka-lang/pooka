@@ -1,0 +1,25 @@
+---
+version: 2.0.2
+title: native: invalid component name
+file: ./test/nif_test.gleam
+test_name: native_syntax_errors_snapshot_test
+---
+Source:
+module main
+native Hash from "Fast-Hash" {
+  digest(data: BitArray) -> BitArray
+}
+
+---
+error: invalid native component name
+  ╭─ src/main.pooka:2:18
+  │
+2 │ native Hash from "Fast-Hash" {
+  │                  ─────┬─────
+  │                       ╰─ `Fast-Hash` is not lowercase snake_case
+  ╰─
+
+A native component is named like its directory under `native/` and its `[native.<name>]` table in the pooka.toml: lowercase letters, digits and `_`, starting with a letter.
+
+Found 1 error.
+

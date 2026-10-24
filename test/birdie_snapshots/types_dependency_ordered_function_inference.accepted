@@ -1,0 +1,14 @@
+---
+version: 2.0.2
+title: types: dependency ordered function inference
+file: ./test/module_infer_test.gleam
+test_name: module_inference_snapshot_test
+---
+[
+  #("identity", "fn(a) -> a"),
+  #("wrap", "fn(a) -> Result(a, b)"),
+  #(
+    "main",
+    "fn() -> #(Result(Int, a), String)",
+  ),
+]

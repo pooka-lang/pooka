@@ -1,0 +1,20 @@
+---
+version: 2.0.2
+title: types: ambiguous primitive operator
+file: ./test/module_infer_test.gleam
+test_name: ambiguous_operator_diagnostic_snapshot_test
+---
+error: ambiguous operator operand type
+  ╭─ src/main.pooka:2:20
+  │
+2 │ add(left, right) { left + right }
+  │                    ──────┬─────
+  │                          ╰─ the operand type is still unknown
+  ╰─
+
+Add an operand type annotation to choose a supported primitive operation.
+
+help: Supported operand types: Int, Float or String.
+
+Found 1 error.
+

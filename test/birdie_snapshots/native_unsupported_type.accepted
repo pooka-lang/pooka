@@ -1,0 +1,20 @@
+---
+version: 2.0.2
+title: native: unsupported type
+file: ./test/nif_test.gleam
+test_name: unsupported_type_snapshot_test
+---
+error: unsupported native type
+  ╭─ src/main.pooka:3:20
+  │
+3 │   calculate(value: Option(Int)) -> Float
+  │                    ─────┬─────
+  │                         ╰─ `Option(Int)` cannot cross the native boundary
+  ╰─
+
+Native functions accept and return `Int`, `Float`, `Bool`, `String`, `BitArray` and `Nil`, and lists and tuples of these.
+
+help: Convert the value to one of these types on the Pooka side of the call.
+
+Found 1 error.
+
