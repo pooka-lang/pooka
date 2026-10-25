@@ -1,0 +1,14 @@
+---
+version: 2.0.2
+title: types recursive declaration signatures
+file: ./test/recursive_declaration_test.gleam
+test_name: recursive_declaration_signatures_snapshot_test
+---
+[
+  #("helper", "fn(a) -> a"),
+  #(
+    "main",
+    "fn() -> #(Int, String, Bool)",
+  ),
+  #("Identity.id", "fn(a) -> a"),
+]

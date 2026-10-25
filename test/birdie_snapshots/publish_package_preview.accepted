@@ -1,0 +1,26 @@
+---
+version: 2.0.2
+title: publish package preview
+file: ./test/publish_test.gleam
+test_name: package_preview_snapshot_test
+---
+
+Files:
+  README.md
+  pooka.toml
+  rebar.config
+  src/app.app.src
+  src/pooka@app@@runtime.erl
+  src/pooka@app@value.erl
+  src/value.pooka
+
+Package: app
+Version: 0.1.0
+Dependencies:
+  none
+
+This is a 0.x release; its public API may still change.
+
+Prepared <project>/build/publish/app/app-0.1.0.tar
+Prepared <project>/build/publish/app/app-0.1.0-docs.tar.gz
+
