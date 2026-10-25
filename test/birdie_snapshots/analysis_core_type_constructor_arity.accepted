@@ -1,0 +1,18 @@
+---
+version: 2.0.2
+title: analysis: core type constructor arity
+file: ./test/resolve_test.gleam
+test_name: type_arity_diagnostic_snapshot_test
+---
+error: wrong number of type arguments
+  ╭─ src/main.pooka:2:10
+  │
+2 │ f(value: Result(Int)) { value }
+  │          ─────┬─────
+  │               ╰─ `Result` requires 2 type arguments
+  ╰─
+
+Found 1 type argument; expected 2.
+
+Found 1 error.
+

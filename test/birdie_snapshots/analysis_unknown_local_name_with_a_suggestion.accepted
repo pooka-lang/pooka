@@ -1,0 +1,20 @@
+---
+version: 2.0.2
+title: analysis: unknown local name with a suggestion
+file: ./test/resolve_test.gleam
+test_name: resolution_diagnostic_snapshot_test
+---
+error: unknown name
+  ╭─ src/main.pooka:3:3
+  │
+3 │   nmae
+  │   ──┬─
+  │     ╰─ `nmae` is not in scope
+  ╰─
+
+No binding named `nmae` is available here.
+
+help: Did you mean `name`?
+
+Found 1 error.
+

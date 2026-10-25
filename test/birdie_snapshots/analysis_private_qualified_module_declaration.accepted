@@ -1,0 +1,18 @@
+---
+version: 2.0.2
+title: analysis: private qualified module declaration
+file: ./test/resolve_test.gleam
+test_name: qualified_private_diagnostic_snapshot_test
+---
+error: private module declaration
+  ╭─ src/main.pooka:3:13
+  │
+3 │ f() { users._helper() }
+  │             ───┬───
+  │                ╰─ `_helper` is private to `account`
+  ╰─
+
+Only ordinary-name declarations are accessible through an imported module.
+
+Found 1 error.
+

@@ -1,0 +1,18 @@
+---
+version: 2.0.2
+title: analysis: local binding shadows mutable actor state
+file: ./test/resolve_test.gleam
+test_name: assignment_diagnostic_snapshot_test
+---
+error: assignment to an immutable binding
+  ╭─ src/main.pooka:4:16
+  │
+4 │   set(count) { count = 1 }
+  │                ──┬──
+  │                  ╰─ `count` cannot be assigned here
+  ╰─
+
+Parameters and local bindings are immutable. Introduce a new binding in a nested scope instead.
+
+Found 1 error.
+

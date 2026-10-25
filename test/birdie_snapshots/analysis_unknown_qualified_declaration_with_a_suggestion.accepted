@@ -1,0 +1,20 @@
+---
+version: 2.0.2
+title: analysis: unknown qualified declaration with a suggestion
+file: ./test/resolve_test.gleam
+test_name: qualified_name_diagnostic_snapshot_test
+---
+error: unknown module declaration
+  ╭─ src/main.pooka:3:13
+  │
+3 │ f() { users.loda() }
+  │             ──┬─
+  │               ╰─ `account` has no declaration named `loda`
+  ╰─
+
+Use a public declaration defined by the imported module.
+
+help: Did you mean `users.load`?
+
+Found 1 error.
+
