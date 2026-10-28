@@ -1,0 +1,35 @@
+---
+version: 2.0.2
+title: analysis: superclass initialization on every path
+file: ./test/super_initialization_test.gleam
+test_name: superclass_initialization_snapshot_test
+---
+Source:
+module main
+class Parent { new(value) {} }
+class Child is Parent {
+  new(flag) {
+    match flag {
+      True -> super.new(1)
+      False -> Nil
+    }
+  }
+}
+
+---
+error: superclass is not initialized on every constructor path
+  ╭─ src/main.pooka:9:4
+  │
+2 │ class Parent { new(value) {} }
+  │       ───┬──
+  │          ╰─ this superclass has an explicit constructor
+  ·
+9 │   }
+  │    ┬
+  │    ╰─ construction can complete without calling `super.new`
+  ╰─
+
+Call `super.new` exactly once on every path that completes construction.
+
+Found 1 error.
+

@@ -1,0 +1,37 @@
+---
+version: 2.0.2
+title: shipment portable launchers
+file: ./test/shipment_test.gleam
+test_name: shipment_launcher_snapshot_test
+---
+#!/bin/sh
+set -eu
+BASE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+COMMAND=${1-run}
+case "$COMMAND" in
+  run)
+    if [ "$#" -gt 0 ]; then shift; fi
+    exec erl -noshell -pa "$BASE"/*/ebin -s 'pooka@app@@entrypoint' start -extra "$@"
+    ;;
+  shell)
+    exec erl -pa "$BASE"/*/ebin
+    ;;
+  *)
+    echo 'usage: entrypoint.sh [run [arguments...] | shell]' >&2
+    exit 1
+    ;;
+esac
+
+--- PowerShell ---
+param(
+  [Parameter(Position=0)][string]$Command = 'run',
+  [Parameter(ValueFromRemainingArguments=$true)][string[]]$ProgramArguments
+)
+$Base = $PSScriptRoot
+$CodePaths = @(Get-ChildItem -LiteralPath $Base -Directory | ForEach-Object { Join-Path $_.FullName 'ebin' } | Where-Object { Test-Path -LiteralPath $_ -PathType Container })
+switch ($Command) {
+  'run' { & erl -noshell -pa @CodePaths -s 'pooka@app@@entrypoint' start -extra @ProgramArguments; exit $LASTEXITCODE }
+  'shell' { & erl -pa @CodePaths; exit $LASTEXITCODE }
+  default { [Console]::Error.WriteLine('usage: entrypoint.ps1 [run [arguments...] | shell]'); exit 1 }
+}
+
