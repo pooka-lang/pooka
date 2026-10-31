@@ -1,0 +1,24 @@
+---
+version: 2.0.2
+title: test runner grouped terminal output
+file: ./test/test_runner_test.gleam
+test_name: terminal_output_uses_the_pooka_palette_test
+---
+  <ESC>[1;38;2;255;137;31mRunning<ESC>[0m tests...
+
+  <ESC>[1;38;2;255;137;31m•<ESC>[0m test module: <ESC>[1;38;2;255;137;31mclasses_test<ESC>[0m
+
+  <ESC>[1;38;2;97;175;111m✓<ESC>[0m generic methods change the stored type
+  <ESC>[1;38;2;97;175;111m✓<ESC>[0m class patterns cover every Boolean field
+  <ESC>[1;38;2;97;175;111m✓<ESC>[0m imported hierarchies narrow subjects and dispatch methods
+
+  <ESC>[1;38;2;255;137;31m•<ESC>[0m test module: <ESC>[1;38;2;255;137;31mclasses_test2<ESC>[0m
+
+  <ESC>[1;38;2;97;175;111m✓<ESC>[0m generic methods change the stored type 2
+  <ESC>[1;38;2;97;175;111m✓<ESC>[0m class patterns cover every Boolean field 2
+  <ESC>[1;38;2;97;175;111m✓<ESC>[0m imported hierarchies narrow subjects and dispatch methods 2
+
+  6 tests, <ESC>[1;38;2;97;175;111m6 passed<ESC>[0m
+
+  <ESC>[1;38;2;255;137;31mFinished<ESC>[0m in <ESC>[38;2;139;148;168m0µs<ESC>[0m
+

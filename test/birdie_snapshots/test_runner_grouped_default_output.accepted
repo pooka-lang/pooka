@@ -1,0 +1,24 @@
+---
+version: 2.0.2
+title: test runner grouped default output
+file: ./test/test_runner_test.gleam
+test_name: default_grouped_output_matches_the_requested_layout_test
+---
+  Running tests...
+
+  • test module: classes_test
+
+  ✓ generic methods change the stored type
+  ✓ class patterns cover every Boolean field
+  ✓ imported hierarchies narrow subjects and dispatch methods
+
+  • test module: classes_test2
+
+  ✓ generic methods change the stored type 2
+  ✓ class patterns cover every Boolean field 2
+  ✓ imported hierarchies narrow subjects and dispatch methods 2
+
+  6 tests, 6 passed
+
+  Finished in 0µs
+

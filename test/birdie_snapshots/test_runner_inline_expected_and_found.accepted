@@ -1,0 +1,25 @@
+---
+version: 2.0.2
+title: test runner inline expected and found
+file: ./test/test_runner_test.gleam
+test_name: equality_failures_show_actual_operands_inline_without_repeating_effects_test
+---
+  Running tests...
+
+  • test module: equality_test
+
+  ✗ operands evaluated once
+      assertion failed: values differ
+      expected 2
+      got 1
+      test/equality.spec.pooka:7
+      output:
+        test/equality.spec.pooka:7
+        2
+
+  ✓ continues
+
+  2 tests, 1 passed, 1 failed
+
+  Finished in 0µs
+

@@ -1,0 +1,22 @@
+---
+version: 2.0.2
+title: test runner skipped and detailed failures
+file: ./test/test_runner_test.gleam
+test_name: skipped_tests_are_checked_but_not_executed_and_failures_show_values_and_source_test
+---
+  Running tests...
+
+  • test module: config_test
+
+  ✓ parses valid configuration
+  - supports remote configuration (skipped)
+  ✗ rejects an invalid port
+      expected Error("invalid port")
+      got Ok(70000)
+      test/config.spec.pooka:6
+
+
+  3 tests, 1 passed, 1 failed, 1 skipped
+
+  Finished in 0µs
+

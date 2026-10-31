@@ -1,0 +1,18 @@
+---
+version: 2.0.2
+title: analysis: todo warning
+file: ./test/todo_warning_test.gleam
+test_name: todo_warning_snapshot_test
+---
+warning: todo found
+  ╭─ src/main.pooka:3:3
+  │
+3 │   todo as "teach the parser about floats"
+  │   ───────────────────┬───────────────────
+  │                      ╰─ this code will crash if it is run
+  ╰─
+
+Be sure to finish it before running or publishing your program.
+
+Found 1 warning.
+

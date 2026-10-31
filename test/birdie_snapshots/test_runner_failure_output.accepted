@@ -1,0 +1,25 @@
+---
+version: 2.0.2
+title: test runner failure output
+file: ./test/test_runner_test.gleam
+test_name: failed_tests_show_inline_details_and_independent_results_test
+---
+  Running tests...
+
+  • test module: failure_test
+
+  ✗ fails clearly
+      assertion failed: expected failure
+      expected True
+      got False
+      test/failure.spec.pooka:4
+      output:
+        test/failure.spec.pooka:3
+        "before failure"
+
+  ✓ passes afterwards
+
+  2 tests, 1 passed, 1 failed
+
+  Finished in 0µs
+
