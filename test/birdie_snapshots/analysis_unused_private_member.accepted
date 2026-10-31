@@ -1,0 +1,20 @@
+---
+version: 2.0.2
+title: analysis: unused private member
+file: ./test/unused_test.gleam
+test_name: unused_private_member_snapshot_test
+---
+warning: unused private field
+  ╭─ src/main.pooka:3:7
+  │
+3 │   let _start: Int = 1
+  │       ───┬──
+  │          ╰─ `_start` is never used inside `Counter`
+  ╰─
+
+Private members are accessible only inside `Counter`, so this one has no effect.
+
+help: Remove it, or use it from `Counter`'s implementation.
+
+Found 1 warning.
+

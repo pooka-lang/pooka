@@ -1,0 +1,38 @@
+---
+version: 2.0.2
+title: analysis: unused imports and unreachable private declarations
+file: ./test/unused_test.gleam
+test_name: warning_snapshot_test
+---
+warning: unused imported name
+  ╭─ src/main.pooka:2:18
+  │
+2 │ import database.{load}
+  │                  ──┬─
+  │                    ╰─ `load` is never referenced
+  ╰─
+
+Remove this selectively imported name or use its local alias.
+
+warning: unused import
+  ╭─ src/main.pooka:3:1
+  │
+3 │ import unused
+  │ ──────┬──────
+  │       ╰─ `unused` is never referenced
+  ╰─
+
+Remove this import to keep the module's dependencies clear.
+
+warning: unused private declaration
+  ╭─ src/main.pooka:4:1
+  │
+4 │ _helper() { Nil }
+  │ ───┬───
+  │    ╰─ `_helper` is not reachable from a public declaration or test
+  ╰─
+
+Remove this private declaration or use it from the module's implementation.
+
+Found 3 warnings.
+
