@@ -1,0 +1,204 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: escript-${{ github.event.release.tag_name || inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag || github.sha }}
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "29"
+          gleam-version: "1.19.0"
+      - run: gleam deps download
+      - run: gleam test
+      - run: node --test scripts/release-assets.test.mjs scripts/doc-versions.test.mjs
+      - run: gleam format --check src test
+      - name: Export the portable escript
+        run: |
+          gleam export escript
+          node scripts/check-escript.mjs pooka
+          mkdir -p artifacts
+          cp pooka artifacts/
+          node scripts/checksums.mjs write artifacts
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: escript
+          path: artifacts/
+
+  test:
+    name: Test escript ${{ matrix.platform }}
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-amd64
+          - os: ubuntu-24.04-arm
+            platform: linux-aarch64
+          - os: macos-26
+            platform: macos-aarch64
+          - os: macos-26-intel
+            platform: macos-amd64
+          - os: windows-2025
+            platform: windows-amd64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag || github.sha }}
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "29"
+      - name: Download the escript artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name escript --dir downloaded
+      - name: Verify and run with Erlang only
+        run: node scripts/check-escript.mjs --package downloaded
+      - name: Check the Unix PATH instructions
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          local_bin="$RUNNER_TEMP/Pooka CLI bin"
+          mkdir -p "$local_bin"
+          install -m 755 downloaded/pooka "$local_bin/pooka"
+          export PATH="$local_bin:$PATH"
+          version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' gleam.toml)
+          test "$(pooka --version)" = "pooka $version"
+          pooka --help >/dev/null
+      - name: Check the Windows PATH launcher
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bin = Join-Path $env:RUNNER_TEMP 'Pooka CLI bin'
+          New-Item -ItemType Directory -Force -Path $bin | Out-Null
+          Copy-Item .\downloaded\pooka (Join-Path $bin 'pooka')
+          @'
+          @echo off
+          escript "%~dp0pooka" %*
+          '@ | Set-Content -Encoding ascii (Join-Path $bin 'pooka.cmd')
+          $env:Path = "$bin;$env:Path"
+          $version = (Select-String '^version = "([^"]+)"' gleam.toml).Matches.Groups[1].Value
+          $actual = pooka --version
+          if ($LASTEXITCODE -ne 0 -or $actual -ne "pooka $version") { throw 'PATH launcher version check failed' }
+          pooka --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'PATH launcher help check failed' }
+
+  emulated:
+    name: Container escript ${{ matrix.platform }}
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/386
+            architecture: ^i[3-6]86
+            wordsize: "4"
+            endian: little
+          - platform: linux/arm/v5
+            architecture: ^arm
+            wordsize: "4"
+            endian: little
+          - platform: linux/arm/v7
+            architecture: ^arm
+            wordsize: "4"
+            endian: little
+          - platform: linux/ppc64le
+            architecture: ^(powerpc64le|ppc64le)
+            wordsize: "8"
+            endian: little
+          - platform: linux/s390x
+            architecture: ^s390x
+            wordsize: "8"
+            endian: big
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag || github.sha }}
+      - name: Download the escript artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name escript --dir downloaded
+      - uses: docker/setup-qemu-action@v4.4.0
+        with:
+          platforms: all
+      - name: Verify checksum and compiler on the target VM
+        env:
+          TARGET_PLATFORM: ${{ matrix.platform }}
+          EXPECTED_ARCH: ${{ matrix.architecture }}
+          EXPECTED_WORDSIZE: ${{ matrix.wordsize }}
+          EXPECTED_ENDIAN: ${{ matrix.endian }}
+        run: |
+          node scripts/checksums.mjs verify downloaded
+          container=$(docker run -d --rm --platform "$TARGET_PLATFORM" \
+            --user "$(id -u):$(id -g)" \
+            -v "$PWD:/work:ro" -v "$RUNNER_TEMP:$RUNNER_TEMP" -w /tmp \
+            -e EXPECTED_ARCH -e EXPECTED_WORDSIZE -e EXPECTED_ENDIAN \
+            -e LANG=C.UTF-8 -e LC_ALL=C.UTF-8 \
+            -e 'ERL_FLAGS=+S 1:1 +SDcpu 1 +SDio 1' \
+            --entrypoint /bin/sh erlang:29.1.2-slim -c 'while :; do sleep 3600; done')
+          trap 'docker rm -f "$container" >/dev/null' EXIT
+          docker exec "$container" erl -noshell -eval '
+            Arch = erlang:system_info(system_architecture),
+            Word = erlang:system_info(wordsize),
+            Endian = erlang:system_info(endian),
+            io:format("~s ~p-byte ~p-endian~n", [Arch, Word, Endian]),
+            "29" = erlang:system_info(otp_release),
+            match = re:run(Arch, os:getenv("EXPECTED_ARCH"), [{capture, none}]),
+            Word = list_to_integer(os:getenv("EXPECTED_WORDSIZE")),
+            Endian = list_to_existing_atom(os:getenv("EXPECTED_ENDIAN")),
+            false = os:find_executable("gleam"), halt().'
+          node scripts/check-escript.mjs --container "$container" /work/downloaded/pooka
+
+  publish:
+    if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/') || inputs.tag != ''
+    needs: [build, test, emulated]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag || github.sha }}
+      - name: Download the escript artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name escript --dir release-inputs
+      - run: node --test scripts/release-assets.test.mjs scripts/doc-versions.test.mjs
+      - name: Upload the escript and checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag || github.ref_name }}
+        run: node scripts/publish-release.mjs
