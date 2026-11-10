@@ -11,7 +11,14 @@
 %%% ```
 
 -module(pooka_package_ffi).
--export([canonical/1, write_atomic/2, git_url/2, git_checkout/5, http_get/1, hex_unpack/3, hex_cached/2, native_build/6, stage_library/4, native_directory/1, using_directory/2, repository_identity/1]).
+-export([canonical/1, canonical_relative/2, write_atomic/2, git_url/2, git_checkout/5, http_get/1, hex_unpack/3, hex_cached/2, native_build/6, stage_library/4, native_directory/1, using_directory/2, repository_identity/1]).
+%% Resolve against the declaring package with the host's filename rules.
+%% A Windows drive or UNC root must replace Owner, rather than become a child
+%% of it. filename:absname/2 also preserves drive-relative path semantics.
+canonical_relative(Owner, Path) ->
+    canonical(filename:absname(unicode:characters_to_list(Path),
+                               unicode:characters_to_list(Owner))).
+
 canonical(Path) ->
     try
         Absolute = filename:absname(unicode:characters_to_list(Path)),

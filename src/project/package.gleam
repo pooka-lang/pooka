@@ -133,12 +133,8 @@ fn source(
 ) -> Result(Project, ProjectError) {
   case dep {
     dependency.Local(name, path) -> {
-      let location = case filepath.is_absolute(path) {
-        True -> path
-        False -> filepath.join(owner.root, path)
-      }
       use directory <- result.try(
-        canonical(location)
+        canonical_relative(owner.root, path)
         |> result.map_error(DependencyProblem(
           filepath.join(owner.root, "pooka.toml"),
           _,
@@ -388,6 +384,9 @@ fn order(
 
 @external(erlang, "pooka_package_ffi", "canonical")
 fn canonical(path: String) -> Result(String, String)
+
+@external(erlang, "pooka_package_ffi", "canonical_relative")
+fn canonical_relative(owner: String, path: String) -> Result(String, String)
 
 pub fn source_path(package: String, relative: String) -> String {
   "src/$package/" <> package <> "/" <> string.drop_start(relative, 4)

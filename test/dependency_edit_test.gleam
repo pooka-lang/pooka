@@ -103,3 +103,27 @@ pub fn local_add_remove_are_resolved_and_failed_changes_preserve_manifest_and_lo
   assert !string.contains(after, "../library")
   assert cli.main(["remove", "library"], pooka.version, env).status == 1
 }
+
+// Use an absolute sibling path: on Windows this includes a drive and must not
+// be appended to the application's root. Spaces also survive the TOML edit.
+pub fn adding_absolute_local_dependency_preserves_its_root_test() {
+  use root <- support.with_directory("absolute_dependency")
+  let library = root <> "/library with spaces"
+  support.write(
+    root <> "/app/pooka.toml",
+    "name = \"app\"\nversion = \"0.1.0\"\n",
+  )
+  support.write(
+    library <> "/pooka.toml",
+    "name = \"library\"\nversion = \"0.1.0\"\n",
+  )
+  let added =
+    cli.main(
+      ["add", "library", "--path", library],
+      pooka.version,
+      command.plain(root <> "/app"),
+    )
+  assert added.status == 0
+  let assert Ok(config) = simplifile.read(root <> "/app/pooka.toml")
+  assert string.contains(config, "library with spaces")
+}
