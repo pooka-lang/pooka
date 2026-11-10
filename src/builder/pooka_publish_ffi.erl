@@ -233,13 +233,19 @@ post(URL0, Key, Body) ->
     catch _:_ -> {error, <<"Could not send the Hex upload.">>}
     end.
 
-%% A staged release is not public yet. Never announce it as a finished upload;
-%% point the author at Hex so they can approve it and retry documentation.
-response(Code, Headers, _Body) when Code >= 200, Code < 300 ->
-    case lists:any(fun({K, V}) -> string:lowercase(chars(K)) =:= "location" andalso
-                    string:find(chars(V), "/staged") =/= nomatch end, Headers) of
-        true -> {error, <<"Hex staged this upload for review. Approve it in your Hex dashboard, then retry the documentation upload if needed.">>};
-        false -> {ok, nil}
+%% A staged upload is accepted, but is not public. Keep that state distinct
+%% from both a rejected request and a published release. The Gleam publisher
+%% can then attach documentation before the author approves the release.
+response(Code, Headers, Body) when Code >= 200, Code < 300 ->
+    Data = try json:decode(Body) catch _:_ -> #{} end,
+    Staged = case Data of #{<<"status">> := <<"staged">>} -> true; _ -> false end,
+    HeaderStaged = lists:any(fun({K, V}) ->
+        string:lowercase(chars(K)) =:= "location" andalso
+        string:find(chars(V), "/staged") =/= nomatch
+    end, Headers),
+    case Staged orelse HeaderStaged of
+        true -> {ok, {staged, approval_url(Data)}};
+        false -> {ok, published}
     end;
 response(Code, _, Body) ->
     Prefix = io_lib:format("Hex rejected the upload (HTTP ~p).", [Code]),
@@ -250,6 +256,19 @@ response(Code, _, Body) ->
         _ -> ""
     end,
     {error, unicode:characters_to_binary([Prefix, "\n", Detail, Hint])}.
+
+%% Print only Hex's own dashboard URL, never an arbitrary URL from a response.
+approval_url(#{<<"html_url">> := URL}) when is_binary(URL) ->
+    case URL of
+        <<"https://hex.pm/dashboard/staged-releases/", _/binary>> ->
+            case byte_size(URL) =< 2048 andalso
+                 lists:all(fun(C) -> C >= 33 andalso C =< 126 end, binary_to_list(URL)) of
+                true -> URL;
+                false -> <<"https://hex.pm/dashboard/staged-releases">>
+            end;
+        _ -> <<"https://hex.pm/dashboard/staged-releases">>
+    end;
+approval_url(_) -> <<"https://hex.pm/dashboard/staged-releases">>.
 
 response_detail(Body) ->
     Text = try json:decode(Body) of

@@ -18,6 +18,7 @@ import diagnostics/diagnostic
 import diagnostics/render
 import gleam/dict
 import gleam/list
+import gleam/string
 import project/hexdocs
 
 pub const info =
@@ -92,7 +93,24 @@ pub fn run_with(
                     )
                   {
                     Error(detail) -> failure(detail, environment)
-                    Ok(Nil) ->
+                    Ok([_, ..] as approvals) ->
+                      Outcome(
+                        preview
+                          <> "\nUploaded "
+                          <> report.name
+                          <> " "
+                          <> report.version
+                          <> case docs_only {
+                          True -> " documentation"
+                          False -> " package and documentation"
+                        }
+                          <> ".\nHex approval is required for the pending files; they are not public yet.\n"
+                          <> string.join(approvals, "\n")
+                          <> "\n",
+                        "",
+                        0,
+                      )
+                    Ok([]) ->
                       Outcome(
                         preview
                           <> "\nPublished "

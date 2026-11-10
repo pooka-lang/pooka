@@ -95,7 +95,9 @@ Keep the key out of your project files and out of Git. In CI, store it as a secr
 pooka publish
 ```
 
-Pooka shows the same preview as a dry run, then asks before it uploads. Say yes, and it publishes the package, then the documentation, and prints where to find them.
+Pooka shows the same preview as a dry run, then asks before it uploads. Say yes, and one command uploads both the package and its documentation. If Hex publishes them directly, Pooka prints where to find them.
+
+New public packages require approval by default. With a publishing key, Hex can stage the package instead of making it public straight away. Pooka still uploads the documentation, so Hex can attach both archives to the same pending release. Pooka prints the approval link; open it, verify with your authenticator, compare the checksums and approve. You do not need to run a second documentation command. A staged upload is accepted, but is not public until approved. See [Hex staged publishing](https://hex.pm/docs/publish#staged-publishing).
 
 If Hex refuses, Pooka shows Hex's own explanation: a name that is already taken, a version that already exists, a key without the right permission.
 

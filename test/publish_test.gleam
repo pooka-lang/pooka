@@ -51,13 +51,13 @@ pub fn publish_prepares_hex_v3_sources_and_documentation_without_uploading_test(
       assert key == "test-key"
       assert body != <<>>
       assert string.starts_with(url, "https://hex.pm/api/")
-      Ok(Nil)
+      Ok(publish.Published)
     })
-    == Ok(Nil)
+    == Ok([])
   assert publish.upload(report, "test-key", fn(url, _, _) {
       case string.ends_with(url, "/docs") {
         True -> Error("fixture error")
-        False -> Ok(Nil)
+        False -> Ok(publish.Published)
       }
     })
     == Error(
@@ -110,7 +110,7 @@ fn hex_response(
   status: Int,
   headers: List(#(String, String)),
   body: String,
-) -> Result(Nil, String)
+) -> Result(publish.UploadState, String)
 
 fn package(dir: String) {
   support.write(
@@ -241,10 +241,10 @@ pub fn docs_only_and_replace_are_distinct_uploads_test() {
       True,
       fn(url, _, _) {
         assert string.ends_with(url, "/docs")
-        Ok(Nil)
+        Ok(publish.Published)
       },
     )
-    == Ok(Nil)
+    == Ok([])
   assert publish.upload_with_options(
       report,
       "fake-key",
@@ -253,10 +253,10 @@ pub fn docs_only_and_replace_are_distinct_uploads_test() {
       fn(url, _, _) {
         assert url == "https://hex.pm/api/publish?replace=true"
           || string.ends_with(url, "/docs")
-        Ok(Nil)
+        Ok(publish.Published)
       },
     )
-    == Ok(Nil)
+    == Ok([])
 }
 
 pub fn hex_errors_preserve_validation_details_and_detect_staging_test() {
@@ -272,16 +272,16 @@ pub fn hex_errors_preserve_validation_details_and_detect_staging_test() {
   let assert Error(otp) =
     hex_response(403, [], "{\"message\":\"two factor required\"}")
   assert string.contains(otp, "HEX_OTP")
-  let assert Error(staged) =
+  let assert Ok(publish.Staged(staged)) =
     hex_response(
       201,
       [#("location", "https://hex.pm/api/packages/app/releases/1.0.0/staged")],
       "{}",
     )
-  assert string.contains(staged, "staged")
+  assert staged == "https://hex.pm/dashboard/staged-releases"
   let assert Error(safe) = hex_response(400, [], "\u{001b}[31mbad request")
   assert !string.contains(safe, "\u{001b}")
-  assert hex_response(201, [], "{}") == Ok(Nil)
+  assert hex_response(201, [], "{}") == Ok(publish.Published)
 }
 
 pub fn dry_run_and_declined_publication_never_read_credentials_or_upload_test() {
@@ -329,7 +329,7 @@ pub fn dry_run_and_declined_publication_never_read_credentials_or_upload_test() 
       fn() { "fake-key" },
       fn(_, key, _) {
         assert key == "fake-key"
-        Ok(Nil)
+        Ok(publish.Published)
       },
     )
   assert sent.status == 0
@@ -368,4 +368,95 @@ pub fn optional_dependencies_keep_the_actual_otp_application_name_test() {
       },
     )
   assert name == "actual_app"
+}
+
+// Accepted staging must not stop the second upload. Distinct URLs also cover
+// servers that keep package and documentation approvals separate.
+pub fn staged_package_still_uploads_documentation_test() {
+  use dir <- support.with_directory("publish_combined_staging")
+  package(dir)
+  let assert Ok(report) = publish.prepare(dir)
+  let package_url = "https://hex.pm/dashboard/staged-releases/hexpm/app/0.1.0"
+  let docs_url = package_url <> "/docs"
+  assert publish.upload(report, "fake-key", fn(url, _, _) {
+      case string.ends_with(url, "/docs") {
+        True -> Ok(publish.Staged(docs_url))
+        False -> Ok(publish.Staged(package_url))
+      }
+    })
+    == Ok([package_url, docs_url])
+  let assert Error(detail) =
+    publish.upload(report, "fake-key", fn(url, _, _) {
+      case string.ends_with(url, "/docs") {
+        True -> Error("docs rejected")
+        False -> Ok(publish.Staged(package_url))
+      }
+    })
+  assert string.contains(detail, "Package staged for approval")
+  assert !string.contains(detail, "Package published")
+  assert string.contains(detail, "--docs-only")
+  assert publish.upload(report, "fake-key", fn(url, _, _) {
+      assert !string.ends_with(url, "/docs")
+      Error("package rejected")
+    })
+    == Error("package rejected")
+}
+
+pub fn combined_staging_prints_one_approval_and_never_claims_publication_test() {
+  use dir <- support.with_directory("publish_staging_output")
+  package(dir)
+  let approval = "https://hex.pm/dashboard/staged-releases/hexpm/app/0.1.0"
+  let outcome =
+    publish_command.run_with(
+      ["--yes"],
+      command.plain(dir),
+      fn(_) { panic },
+      fn() { "fake-key" },
+      fn(_, _, _) { Ok(publish.Staged(approval)) },
+    )
+  assert outcome.status == 0
+  assert outcome.stderr == ""
+  assert string.contains(outcome.stdout, "package and documentation.")
+  assert !string.contains(outcome.stdout, "Published app")
+  assert list.length(string.split(outcome.stdout, approval)) == 2
+  let docs =
+    publish_command.run_with(
+      ["--yes", "--docs-only"],
+      command.plain(dir),
+      fn(_) { panic },
+      fn() { "fake-key" },
+      fn(url, _, _) {
+        assert string.ends_with(url, "/docs")
+        Ok(publish.Staged(approval))
+      },
+    )
+  assert docs.status == 0
+  assert string.contains(docs.stdout, "0.1.0 documentation.")
+}
+
+pub fn staging_response_body_is_recognised_without_location_header_test() {
+  let approval = "https://hex.pm/dashboard/staged-releases/hexpm/app/0.1.0"
+  assert hex_response(
+      201,
+      [],
+      "{\"status\":\"staged\",\"html_url\":\"" <> approval <> "\"}",
+    )
+    == Ok(publish.Staged(approval))
+  assert hex_response(
+      201,
+      [],
+      "{\"status\":\"staged\",\"html_url\":\"https://other.invalid/approval\"}",
+    )
+    == Ok(publish.Staged("https://hex.pm/dashboard/staged-releases"))
+}
+
+// Registry strings reach the terminal. A dashboard-looking URL must not carry
+// embedded terminal controls or a line break into the approval output.
+pub fn staging_approval_links_reject_control_characters_test() {
+  assert hex_response(
+      201,
+      [],
+      "{\"status\":\"staged\",\"html_url\":\"https://hex.pm/dashboard/staged-releases/\\u001b[31m\"}",
+    )
+    == Ok(publish.Staged("https://hex.pm/dashboard/staged-releases"))
 }

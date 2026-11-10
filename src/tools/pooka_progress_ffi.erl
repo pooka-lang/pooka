@@ -45,7 +45,7 @@ event(E) -> put(pooka_progress_events,[E|get(pooka_progress_events)]).
 status({error,_}) -> <<"Failed">>;
 status(_) -> <<"Downloaded">>.
 line(Label,Name,Colour) ->
-    io:put_chars(standard_error,[style(Colour),io_lib:format("~10ts",[Label]),reset(Colour)," ",Name,"\n"]).
+    io:put_chars(standard_error,[style(Colour),io_lib:format("~11ts",[Label]),reset(Colour)," ",Name,"\n"]).
 finish(Label,Name,Colour,Started) ->
     Ms=(erlang:monotonic_time(microsecond)-Started)/1000,
     line(Label,iolist_to_binary([Name,io_lib:format(" in ~.2fms",[Ms])]),Colour).

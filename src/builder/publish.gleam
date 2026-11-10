@@ -39,10 +39,16 @@ pub type Report {
   )
 }
 
-pub type Upload =
-  fn(String, String, BitArray) -> Result(Nil, String)
+/// Hex may accept an upload for approval without making it public.
+pub type UploadState {
+  Published
+  Staged(approval_url: String)
+}
 
-/// Keep first publication offline and reviewable. Only upload/4 talks to Hex.
+pub type Upload =
+  fn(String, String, BitArray) -> Result(UploadState, String)
+
+/// Keep first publication offline and reviewable. Only the upload callback talks to Hex.
 ///
 /// ```text
 /// checked production build -> portable sources + metadata -> two tarballs
@@ -283,19 +289,25 @@ pub fn upload(
   report: Report,
   key: String,
   send: Upload,
-) -> Result(Nil, String) {
+) -> Result(List(String), String) {
   upload_with_options(report, key, False, False, send)
 }
 
 /// A docs-only retry never sends the package again. A replacement explicitly
-/// opts into Hex's server-enforced replacement window.
+/// opts into Hex's server-enforced replacement window. Return the distinct
+/// approval links, or an empty list when both uploads are already public.
+///
+/// ```text
+/// package staged -> docs attached -> one approval link
+/// package rejected -> stop before docs
+/// ```
 pub fn upload_with_options(
   report: Report,
   key: String,
   replace: Bool,
   docs_only: Bool,
   send: Upload,
-) -> Result(Nil, String) {
+) -> Result(List(String), String) {
   use Nil <- result.try(case string.trim(key) {
     "" ->
       Error(
@@ -307,8 +319,8 @@ pub fn upload_with_options(
     simplifile.read_bits(report.documentation)
     |> result.map_error(simplifile.describe_error),
   )
-  use Nil <- result.try(case docs_only {
-    True -> Ok(Nil)
+  use package_state <- result.try(case docs_only {
+    True -> Ok(Published)
     False -> {
       use package <- result.try(
         simplifile.read_bits(report.package)
@@ -325,24 +337,44 @@ pub fn upload_with_options(
       )
     }
   })
-  send(
-    "https://hex.pm/api/packages/"
-      <> report.name
-      <> "/releases/"
-      <> report.version
-      <> "/docs",
-    key,
-    documentation,
+  use docs_state <- result.try(
+    send(
+      "https://hex.pm/api/packages/"
+        <> report.name
+        <> "/releases/"
+        <> report.version
+        <> "/docs",
+      key,
+      documentation,
+    )
+    |> result.map_error(fn(error) {
+      case docs_only {
+        True -> error
+        False ->
+          case package_state {
+            Published -> "Package published, but documentation upload failed: "
+            Staged(url) ->
+              "Package staged for approval at "
+              <> url
+              <> ", but documentation upload failed: "
+          }
+          <> error
+          <> "\nRetry with `pooka publish --docs-only`."
+      }
+    }),
   )
-  |> result.map_error(fn(error) {
-    case docs_only {
-      True -> error
-      False ->
-        "Package published, but documentation upload failed: "
-        <> error
-        <> "\nRetry with `pooka publish --docs-only`."
-    }
-  })
+  // Send docs even when the package is staged. Hex attaches them to the same
+  // pending release, so the author reviews both archives before one approval.
+  Ok(
+    [package_state, docs_state]
+    |> list.filter_map(fn(state) {
+      case state {
+        Published -> Error(Nil)
+        Staged(url) -> Ok(url)
+      }
+    })
+    |> list.unique,
+  )
 }
 
 fn package_failure(detail: String) -> build.Failure {
@@ -381,7 +413,11 @@ fn archive(
 fn sources(ebin: String) -> Result(List(#(String, String)), String)
 
 @external(erlang, "pooka_publish_ffi", "post")
-pub fn post(url: String, key: String, body: BitArray) -> Result(Nil, String)
+pub fn post(
+  url: String,
+  key: String,
+  body: BitArray,
+) -> Result(UploadState, String)
 
 @external(erlang, "pooka_publish_ffi", "api_key")
 pub fn api_key() -> String

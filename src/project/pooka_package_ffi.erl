@@ -11,7 +11,7 @@
 %%% ```
 
 -module(pooka_package_ffi).
--export([canonical/1, canonical_relative/2, write_atomic/2, git_url/2, git_checkout/5, http_get/1, hex_unpack/3, hex_cached/2, native_build/6, stage_library/4, native_directory/1, using_directory/2, repository_identity/1]).
+-export([canonical/1, canonical_relative/2, download_name/1, write_atomic/2, git_url/2, git_checkout/5, http_get/1, hex_unpack/3, hex_cached/2, native_build/6, stage_library/4, native_directory/1, using_directory/2, repository_identity/1]).
 %% Resolve against the declaring package with the host's filename rules.
 %% A Windows drive or UNC root must replace Owner, rather than become a child
 %% of it. filename:absname/2 also preserves drive-relative path semantics.
@@ -176,9 +176,15 @@ tool_output(Port,Parts,Program) ->
 http_get(URLBinary) ->
     URL=unicode:characters_to_list(URLBinary),
     case lists:suffix(".tar",URL) of
-        true -> pooka_progress_ffi:run(unicode:characters_to_binary(filename:basename(URL)),fun()->http_get_inner(URLBinary) end);
+        true -> pooka_progress_ffi:run(download_name(URLBinary),fun()->http_get_inner(URLBinary) end);
         false -> http_get_inner(URLBinary)
     end.
+%% Hex package names use underscores; the first hyphen starts the version.
+%% Report the package identity, rather than its transport archive filename.
+download_name(URLBinary) ->
+    Name = filename:basename(unicode:characters_to_list(URLBinary), ".tar"),
+    unicode:characters_to_binary(hd(string:split(Name, "-"))).
+
 http_get_inner(URLBinary) ->
     try
         URL = unicode:characters_to_list(URLBinary),

@@ -27,3 +27,23 @@ pub fn progress_reports_each_operation_and_its_real_result_test() {
       "Failed two-1.0.0.tar",
     ]
 }
+
+@external(erlang, "pooka_package_ffi", "download_name")
+fn download_name(url: String) -> String
+
+pub fn hex_downloads_use_package_names_instead_of_archive_names_test() {
+  assert download_name("https://repo.hex.pm/tarballs/pooka_stdlib-0.1.0.tar")
+    == "pooka_stdlib"
+  assert download_name(
+      "https://repo.hex.pm/tarballs/my_long_package-1.2.3-rc.1.tar",
+    )
+    == "my_long_package"
+  let #(_, events) =
+    progress.record(fn() {
+      download(
+        download_name("https://repo.hex.pm/tarballs/pooka_stdlib-0.1.0.tar"),
+        fn() { Ok(Nil) },
+      )
+    })
+  assert events == ["Downloading pooka_stdlib", "Downloaded pooka_stdlib"]
+}
