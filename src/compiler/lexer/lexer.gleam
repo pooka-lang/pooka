@@ -626,7 +626,16 @@ fn decimal_number(
   lexemes: List(Lexeme),
   errors: List(LexError),
 ) -> Lexed {
-  let #(after, size, kind) = scan_number(rest, 0)
+  // After a projection dot, the next dot belongs to another projection.
+  // Keep pair.0.1 as Dot, Int, Dot, Int while ordinary 0.1 stays a float.
+  let previous = list.find(lexemes, fn(item) { !token.is_trivia(item.token) })
+  let #(after, size, kind) = case previous {
+    Ok(Lexeme(token: token.Dot, ..)) -> {
+      let #(after, size) = scan_digits(rest, 0)
+      #(after, size, IntegerNumber)
+    }
+    _ -> scan_number(rest, 0)
+  }
 
   let #(after, size, problem) = case kind {
     FloatNumber -> #(after, size, Ok(Nil))

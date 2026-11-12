@@ -63,8 +63,9 @@ fn expression(value: ast.Expression) -> Bool {
     ast.BlockExpression(body) -> block(body)
     ast.Call(callee, arguments, _) ->
       expression(callee) || list.any(arguments, expression)
-    ast.FieldAccess(subject, _, _) | ast.Unary(_, subject, _) ->
-      expression(subject)
+    ast.TupleAccess(subject, _, _, _)
+    | ast.FieldAccess(subject, _, _)
+    | ast.Unary(_, subject, _) -> expression(subject)
     ast.Binary(_, left, right, _) -> expression(left) || expression(right)
     ast.Match(subject, branches, _) ->
       expression(subject)

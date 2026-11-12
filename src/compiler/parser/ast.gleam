@@ -303,6 +303,8 @@ pub type Expression {
 
   FieldAccess(subject: Expression, name: Name, span: Span)
 
+  TupleAccess(subject: Expression, index: Int, index_span: Span, span: Span)
+
   Propagate(operand: Expression, span: Span)
 
   Unary(operator: UnaryOperator, operand: Expression, span: Span)
@@ -462,6 +464,7 @@ pub fn expression_span(expression: Expression) -> Span {
     | AnonymousFunction(span:, ..)
     | Call(span:, ..)
     | FieldAccess(span:, ..)
+    | TupleAccess(span:, ..)
     | Propagate(span:, ..)
     | Unary(span:, ..)
     | Binary(span:, ..)

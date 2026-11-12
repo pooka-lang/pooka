@@ -858,6 +858,27 @@ fn expression(
         context,
       ))
     }
+    // A tuple counts its pockets from zero in Pooka and from one in Erlang.
+    // The checked index is constant; evaluate its receiver exactly once.
+    //
+    // ```text
+    // pair.0 -> erlang:element(1, Pair)
+    // {call,L,{remote,L,{atom,L,erlang},{atom,L,element}},
+    //   [{integer,L,1}, Pair]}
+    // ```
+    // https://www.erlang.org/doc/apps/erts/absform.html#expressions
+    ast.TupleAccess(subject:, index:, ..) -> {
+      use #(value, context) <- result.try(expression(subject, context))
+      Ok(#(
+        f.remote(
+          "erlang",
+          "element",
+          [f.node("integer", line, [f.Integer(index + 1)]), value],
+          line,
+        ),
+        context,
+      ))
+    }
     ast.FieldAccess(subject, name, _) ->
       case enum_of(subject, context) {
         Ok(enum) ->

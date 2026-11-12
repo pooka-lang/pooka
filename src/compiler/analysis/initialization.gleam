@@ -339,7 +339,8 @@ fn expression(
       Flow(incoming, [], [], errors)
     }
     ast.FieldAccess(ast.SelfExpression(_), _, _) -> normal(incoming)
-    ast.FieldAccess(subject:, ..) -> expression(subject, incoming, context)
+    ast.FieldAccess(subject:, ..) | ast.TupleAccess(subject:, ..) ->
+      expression(subject, incoming, context)
     ast.Propagate(operand:, ..) | ast.Unary(operand:, ..) ->
       expression(operand, incoming, context)
     ast.Binary(operator: operator, left:, right:, ..)

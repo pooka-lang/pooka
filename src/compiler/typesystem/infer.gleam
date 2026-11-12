@@ -567,6 +567,57 @@ fn expression_inner(
         path,
         context,
       )
+    ast.TupleAccess(subject:, index:, index_span:, ..) -> {
+      use found <- result.try(expression_type(
+        subject,
+        environment,
+        state,
+        path,
+        context,
+      ))
+      let subject_type = unify.apply(found.type_, found.state)
+      case subject_type {
+        monotype.ErrorType -> Ok(found)
+        monotype.TupleType(elements) -> {
+          case list.first(list.drop(elements, index)) {
+            Ok(type_) -> Ok(Inferred(type_, found.state, found.diagnostics))
+            Error(_) ->
+              Ok(
+                Inferred(monotype.ErrorType, found.state, [
+                  diagnostic.error(
+                    "type.tuple_index_out_of_bounds",
+                    "tuple index is out of bounds",
+                  )
+                    |> diagnostic.primary(
+                      location.new(path, index_span),
+                      "This tuple has "
+                        <> int.to_string(list.length(elements))
+                        <> " elements; indices start at zero.",
+                    ),
+                  ..found.diagnostics
+                ]),
+              )
+          }
+        }
+        _ ->
+          Ok(
+            Inferred(monotype.ErrorType, found.state, [
+              diagnostic.error(
+                "type.invalid_tuple_subject",
+                "tuple projection requires a tuple",
+              )
+                |> diagnostic.primary(
+                  location.new(path, ast.expression_span(subject)),
+                  "The receiver must have a known tuple type.",
+                )
+                |> diagnostic.help(
+                  "If its type cannot be inferred, annotate the parameter with its tuple type.",
+                ),
+              ..found.diagnostics
+            ]),
+          )
+      }
+    }
     ast.FieldAccess(ast.SuperExpression(_), name, span) ->
       super_member(name, span, state, path, context)
 

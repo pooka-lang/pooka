@@ -352,7 +352,8 @@ fn complex(value: ast.Expression) -> Bool {
       list.any(elements, complex)
     ast.Unary(_, subject, _)
     | ast.Propagate(subject, _)
-    | ast.FieldAccess(subject, _, _) -> complex(subject)
+    | ast.FieldAccess(subject, _, _)
+    | ast.TupleAccess(subject, _, _, _) -> complex(subject)
     ast.Binary(_, left, right, _) -> complex(left) || complex(right)
     _ -> False
   }
@@ -407,6 +408,7 @@ fn expression(rules: Rules, value: ast.Expression) -> Rules {
         expression,
       )
     ast.FieldAccess(subject, _, _)
+    | ast.TupleAccess(subject, _, _, _)
     | ast.Propagate(subject, _)
     | ast.Unary(_, subject, _) -> expression(rules, subject)
     ast.Assert(subject, message, _) ->

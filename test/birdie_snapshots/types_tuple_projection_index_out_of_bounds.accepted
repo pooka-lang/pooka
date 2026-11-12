@@ -1,0 +1,14 @@
+---
+version: 2.0.2
+title: types: tuple projection index out of bounds
+---
+error: tuple index is out of bounds
+  ╭─ src/main.pooka:2:23
+  │
+2 │ main() { echo #(1, 2).2 }
+  │                       ┬
+  │                       ╰─ This tuple has 2 elements; indices start at zero.
+  ╰─
+
+Found 1 error.
+

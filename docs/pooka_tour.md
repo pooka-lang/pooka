@@ -298,6 +298,20 @@ main() {
 }
 ```
 
+Read one pocket with a zero-based index:
+
+```pooka
+let book = #("The Owl", 2026)
+assert book.0 == "The Owl"
+assert book.1 + 1 == 2027
+assert #(#(1, 2), "owl").0.1 == 2
+```
+
+The compiler checks the index and keeps the selected element's type. A function
+parameter needs a known tuple shape, for example `title(book: #(String, Int)) ->
+String { book.0 }`. A projection alone cannot tell the compiler how many pockets
+an otherwise unknown tuple has. Class fields keep their usual names.
+
 Open a tuple by matching on its shape, as with `let #(title, year) = book`. Tuples are good for passing two or three things together. When the parcel gets heavier, or needs a name, a [class](#classes) is kinder.
 
 ### Comments

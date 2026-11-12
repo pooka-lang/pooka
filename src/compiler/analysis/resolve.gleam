@@ -740,6 +740,7 @@ fn expression(value: ast.Expression, scope: Scope) -> List(Event) {
         False -> expressions([ast.TypeName(name, span), ..arguments], scope)
       }
     ast.Call(callee, arguments, _) -> expressions([callee, ..arguments], scope)
+    ast.TupleAccess(subject:, ..) -> expression(subject, scope)
     ast.FieldAccess(subject: ast.TypeName(namespace, _), name:, ..) ->
       case dict.get(scope.externals, namespace) {
         Ok(functions) -> external_member(namespace, functions, name, scope)

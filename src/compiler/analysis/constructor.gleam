@@ -61,7 +61,8 @@ fn expression(value: ast.Expression) -> Bool {
     ast.Binary(left:, right:, ..) -> expression(left) || expression(right)
     ast.Unary(operand:, ..)
     | ast.Propagate(operand:, ..)
-    | ast.FieldAccess(subject: operand, ..) -> expression(operand)
+    | ast.FieldAccess(subject: operand, ..)
+    | ast.TupleAccess(subject: operand, ..) -> expression(operand)
     ast.Assert(condition, message, _) ->
       expression(condition) || optional(message)
     ast.Panic(message, _) | ast.Todo(message, _) | ast.Break(message, _) ->
