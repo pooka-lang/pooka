@@ -279,6 +279,7 @@ fn expression(
         expression(callee, context, path),
         expressions(arguments, context, path),
       )
+    ast.TupleAccess(subject:, ..) -> expression(subject, context, path)
     ast.FieldAccess(subject:, name:, span:) -> {
       let own = case subject, name.name, context.superclass, context.callable {
         ast.SuperExpression(_), "new", HasSuperclass, Function

@@ -230,7 +230,8 @@ fn expression(value: ast.Expression, path: String) -> List(Diagnostic) {
         expression(callee, path),
         list.flat_map(arguments, expression(_, path)),
       )
-    ast.FieldAccess(subject:, ..) -> expression(subject, path)
+    ast.FieldAccess(subject:, ..) | ast.TupleAccess(subject:, ..) ->
+      expression(subject, path)
     ast.Propagate(operand:, ..) | ast.Unary(operand:, ..) ->
       expression(operand, path)
     ast.Binary(left:, right:, ..) ->

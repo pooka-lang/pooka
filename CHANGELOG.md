@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Read tuple elements with zero-based projections such as `pair.0`, including chained projections and compile-time bounds checks (#4).
+
 ### Bug fixes
 
 - Fix misleading “unknown module” diagnostics when an imported module fails to parse (#5).

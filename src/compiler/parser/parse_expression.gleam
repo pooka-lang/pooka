@@ -11,6 +11,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import compiler/lexer/token.{type Lexeme, type Token, Lexeme}
+import compiler/literal
 import compiler/parser/ast.{type Block, type Expression, type Statement}
 import compiler/parser/parse_error
 import compiler/parser/parse_parameter
@@ -321,9 +322,30 @@ fn postfix(parser: Parser, expression: Expression) -> Parsed(Expression) {
       }
     Lexeme(token: token.Dot, ..) -> {
       let parser = state.skip(parser)
-      use #(name, parser) <- result.try(member_name(parser))
-      let span = state.span_from(parser, start)
-      postfix(parser, ast.FieldAccess(subject: expression, name:, span:))
+      case state.current(parser) {
+        Lexeme(token: token.Int(value), span: index_span) -> {
+          use index <- result.try(
+            literal.parse_int(value)
+            |> result.map_error(fn(_) {
+              state.name_error(
+                state.current(parser),
+                parse_error.ExpectName("a non-negative tuple index"),
+              )
+            }),
+          )
+          let parser = state.skip(parser)
+          let span = state.span_from(parser, start)
+          postfix(
+            parser,
+            ast.TupleAccess(subject: expression, index:, index_span:, span:),
+          )
+        }
+        _ -> {
+          use #(name, parser) <- result.try(member_name(parser))
+          let span = state.span_from(parser, start)
+          postfix(parser, ast.FieldAccess(subject: expression, name:, span:))
+        }
+      }
     }
     Lexeme(token: token.Question, ..) -> {
       let parser = state.skip(parser)
@@ -344,7 +366,7 @@ fn member_name(parser: Parser) -> Parsed(ast.Name) {
     found ->
       Error(state.name_error(
         found,
-        parse_error.ExpectName("a field or method name"),
+        parse_error.ExpectName("a field, method or non-negative tuple index"),
       ))
   }
 }

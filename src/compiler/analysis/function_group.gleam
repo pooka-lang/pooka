@@ -243,7 +243,8 @@ fn expression(value: ast.Expression, bound: Set(String)) -> Set(String) {
     ast.AnonymousFunction(parameters, _, body, _) ->
       block(body, set.union(bound, parameter_names(parameters)))
     ast.Call(callee, arguments, _) -> expressions([callee, ..arguments], bound)
-    ast.FieldAccess(subject:, ..) -> expression(subject, bound)
+    ast.FieldAccess(subject:, ..) | ast.TupleAccess(subject:, ..) ->
+      expression(subject, bound)
     ast.Unary(operand:, ..) | ast.Propagate(operand:, ..) ->
       expression(operand, bound)
     ast.Binary(left:, right:, ..) -> expressions([left, right], bound)
