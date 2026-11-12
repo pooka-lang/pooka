@@ -225,8 +225,5 @@ area(c)
 
 The enum variant `Unit.Feet` is written `'|Unit.Feet|` in LFE.
 
-## A working example
-
-The `BEAM-Interop` examples, next to the compiler, call the same `shapes` library from Erlang, Elixir, Gleam and LFE, with tests for each one, and an OTP release that starts it alongside the standard library.
 
 Different languages, one street. Everybody waves.
