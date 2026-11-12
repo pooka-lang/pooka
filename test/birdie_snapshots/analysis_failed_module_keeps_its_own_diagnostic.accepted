@@ -1,0 +1,18 @@
+---
+version: 2.0.2
+title: analysis: failed module keeps its own diagnostic
+---
+error: missing `}`
+  ╭─ src/helper.pooka:2:9
+  │
+2 │ value() { 1
+  │         ─┬─
+  │          ╰─ this block is never closed
+  ╰─
+
+Expected `}` before the end of the file.
+
+Found 1 error.
+
+JSON:
+{"version":1,"diagnostics":[{"id":"parse.unclosed_delimiter","severity":"error","title":"missing `}`","labels":[{"location":{"path":"src/helper.pooka","start":{"line":2,"column":9,"byte_offset":22},"end":{"line":2,"column":12,"byte_offset":25}},"message":"this block is never closed","importance":"primary"}],"conclusion":"Expected `}` before the end of the file.","notes":[],"suggestions":[],"fixes":[{"location":{"path":"src/helper.pooka","start":{"line":2,"column":12,"byte_offset":25},"end":{"line":2,"column":12,"byte_offset":25}},"replacement":"}","description":"Insert `}`","applicability":"uncertain"}]}],"summary":{"errors":1,"warnings":0,"notices":0}}

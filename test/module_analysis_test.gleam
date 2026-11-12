@@ -10,9 +10,12 @@ import builder/check
 import cli/command
 import compiler/analysis/module
 import diagnostics/diagnostic
+import diagnostics/json as diagnostic_json
 import diagnostics/render
 import gleam/dict
 import gleam/list
+import gleam/set
+import gleam/string
 import support
 import utilities/colour
 import utilities/location
@@ -196,26 +199,39 @@ pub fn known_selective_imports_are_checked_test() {
   assert module.check_imports(
       [source("main", "import account.{User, load as fetch}")],
       [target],
+      set.new(),
     )
     == []
   let assert [value] =
-    module.check_imports([source("main", "import account.{Missing as User}")], [
-      target,
-    ])
+    module.check_imports(
+      [source("main", "import account.{Missing as User}")],
+      [
+        target,
+      ],
+      set.new(),
+    )
   assert value.id == "analysis.unknown_imported_name"
 }
 
 pub fn imports_do_not_reexport_declarations_test() {
   let target = source("account", "import elsewhere.{User}")
   let assert [value] =
-    module.check_imports([source("main", "import account.{User}")], [target])
+    module.check_imports(
+      [source("main", "import account.{User}")],
+      [target],
+      set.new(),
+    )
   assert value.id == "analysis.unknown_imported_name"
 }
 
 pub fn private_imports_do_not_cascade_as_unknown_test() {
-  assert module.check_imports([source("main", "import account.{_secret}")], [
-      source("account", ""),
-    ])
+  assert module.check_imports(
+      [source("main", "import account.{_secret}")],
+      [
+        source("account", ""),
+      ],
+      set.new(),
+    )
     == []
 }
 
@@ -254,7 +270,11 @@ pub fn unknown_local_import_diagnostic_snapshot_test() {
       "src/account.pooka",
       support.parse("module account\nclass User {}\n"),
     )
-  module.check_imports([source("main", "import account.{Missing}")], [target])
+  module.check_imports(
+    [source("main", "import account.{Missing}")],
+    [target],
+    set.new(),
+  )
   |> render.render_all(
     dict.from_list([
       #("src/main.pooka", "module main\nimport account.{Missing}\n"),
@@ -294,4 +314,181 @@ pub fn dependency_order_places_local_imports_first_test() {
   assert list.map(ordered, fn(value) { value.identity }) == ["c", "b", "a"]
   let assert Error(_) =
     module.order([source("a", "import b"), source("b", "import a")])
+}
+
+// A failed parse belongs to its source file. The two readers should not get
+// extra missing-module complaints merely because they arrived at its door.
+fn broken_import_fixture(directory: String) -> check.Report {
+  support.write(
+    directory <> "/pooka.toml",
+    "name = \"app\"\nversion = \"1.0.0\"\n",
+  )
+  support.write(
+    directory <> "/src/helper.pooka",
+    "module helper\nvalue() { 1\n",
+  )
+  support.write(
+    directory <> "/src/main.pooka",
+    "module main\nimport helper\nmain() { echo helper.value() }\n",
+  )
+  support.write(
+    directory <> "/test/main.spec.pooka",
+    "module main_test\nimport helper.{value}\ntest \"value\" { assert value() == 1 }\n",
+  )
+  let assert Ok(report) = check.check_project(directory)
+  report
+}
+
+pub fn failed_modules_do_not_disappear_at_production_and_selective_test_imports_test() {
+  use directory <- support.with_directory("module_failed_import")
+  let report = broken_import_fixture(directory)
+  let assert [value] = check.diagnostics(report)
+  assert value.id == "parse.unclosed_delimiter"
+  assert result_path(diagnostic.primary_location(value)) == "src/helper.pooka"
+}
+
+pub fn failed_import_diagnostic_text_and_json_snapshot_test() {
+  use directory <- support.with_directory("module_failed_import_snapshot")
+  let report = broken_import_fixture(directory)
+  let values = check.diagnostics(report)
+  let sources =
+    dict.from_list(
+      list.map(report.files, fn(file) { #(file.path, file.source) }),
+    )
+  let output =
+    render.render_all(values, sources, colour.PlainText, diagnostic.Quiet)
+    <> "\nJSON:\n"
+    <> diagnostic_json.render(values, diagnostic.Quiet)
+  birdie.snap(output, title: "analysis: failed module keeps its own diagnostic")
+}
+
+pub fn failed_modules_do_not_hide_genuinely_missing_imports_test() {
+  use directory <- support.with_directory("module_failed_and_missing")
+  let _ = broken_import_fixture(directory)
+  support.write(
+    directory <> "/src/main.pooka",
+    "module main\nimport helper\nimport absent\nmain() { echo helper.value() }\n",
+  )
+  let assert Ok(report) = check.check_project(directory)
+  let missing =
+    list.filter(check.diagnostics(report), fn(value) {
+      value.id == "module.unknown"
+    })
+  let assert [value] = missing
+  assert value.conclusion == "Could not find module `absent`."
+  assert list.length(check.diagnostics(report)) == 2
+}
+
+pub fn lexical_failures_do_not_create_missing_module_errors_test() {
+  use directory <- support.with_directory("module_failed_lex")
+  let _ = broken_import_fixture(directory)
+  support.write(
+    directory <> "/src/helper.pooka",
+    "module helper\nvalue() { @ }\n",
+  )
+  let assert Ok(report) = check.check_project(directory)
+  let values = check.diagnostics(report)
+  assert list.any(values, fn(value) { string.starts_with(value.id, "lex.") })
+  assert list.all(values, fn(value) {
+    result_path(diagnostic.primary_location(value)) == "src/helper.pooka"
+  })
+}
+
+pub fn failed_module_does_not_hide_independent_resolution_errors_test() {
+  use directory <- support.with_directory("module_failed_and_unrelated")
+  let _ = broken_import_fixture(directory)
+  support.write(
+    directory <> "/src/other.pooka",
+    "module other\nwork() { missing() }\n",
+  )
+  let assert Ok(report) = check.check_project(directory)
+  let values = check.diagnostics(report)
+  assert list.length(values) == 2
+  assert list.any(values, fn(value) {
+    result_path(diagnostic.primary_location(value)) == "src/other.pooka"
+  })
+  assert !list.any(values, fn(value) { value.id == "module.unknown" })
+}
+
+pub fn broken_test_files_do_not_become_importable_modules_test() {
+  use directory <- support.with_directory("module_broken_test_target")
+  support.write(
+    directory <> "/pooka.toml",
+    "name = \"app\"\nversion = \"1.0.0\"\n",
+  )
+  support.write(
+    directory <> "/src/main.pooka",
+    "module main\nimport helper\nmain() { Nil }\n",
+  )
+  support.write(
+    directory <> "/test/helper.spec.pooka",
+    "module helper_test\ntest \"broken\" {\n",
+  )
+  let assert Ok(report) = check.check_project(directory)
+  let missing =
+    list.filter(check.diagnostics(report), fn(value) {
+      value.id == "module.unknown"
+    })
+  let assert [value] = missing
+  assert value.conclusion == "Could not find module `helper`."
+}
+
+pub fn failed_local_dependency_modules_keep_their_package_identity_test() {
+  use directory <- support.with_directory("module_failed_dependency")
+  support.write(
+    directory <> "/pooka.toml",
+    "name = \"app\"\nversion = \"1.0.0\"\n[dependencies]\nlibrary = { path = \"library\" }\n",
+  )
+  support.write(
+    directory <> "/src/main.pooka",
+    "module main\nimport helper\nmain() { echo helper.value() }\n",
+  )
+  support.write(
+    directory <> "/library/pooka.toml",
+    "name = \"library\"\nversion = \"1.0.0\"\n",
+  )
+  support.write(
+    directory <> "/library/src/helper.pooka",
+    "module helper\nvalue() { 1\n",
+  )
+  let assert Ok(report) = check.check_project(directory)
+  let assert [value] = check.diagnostics(report)
+  assert value.id == "parse.unclosed_delimiter"
+}
+
+// A failure elsewhere in the graph must not lend a transitive package to a
+// caller that never declared it. Visibility is part of the address too.
+pub fn failed_transitive_modules_do_not_hide_undeclared_imports_test() {
+  use directory <- support.with_directory("module_failed_invisible_dependency")
+  support.write(
+    directory <> "/pooka.toml",
+    "name = \"app\"\nversion = \"1.0.0\"\n[dependencies]\nleft = { path = \"left\" }\n",
+  )
+  support.write(
+    directory <> "/src/main.pooka",
+    "module main\nimport helper\nmain() { Nil }\n",
+  )
+  support.write(
+    directory <> "/left/pooka.toml",
+    "name = \"left\"\nversion = \"1.0.0\"\n[dependencies]\nright = { path = \"../right\" }\n",
+  )
+  support.write(
+    directory <> "/left/src/left.pooka",
+    "module left\nwork() { Nil }\n",
+  )
+  support.write(
+    directory <> "/right/pooka.toml",
+    "name = \"right\"\nversion = \"1.0.0\"\n",
+  )
+  support.write(
+    directory <> "/right/src/helper.pooka",
+    "module helper\nvalue() { 1\n",
+  )
+  let assert Ok(report) = check.check_project(directory)
+  let missing =
+    list.filter(check.diagnostics(report), fn(value) {
+      value.id == "module.unknown"
+    })
+  let assert [value] = missing
+  assert value.conclusion == "Could not find module `helper`."
 }

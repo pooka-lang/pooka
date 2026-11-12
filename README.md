@@ -84,6 +84,8 @@ gleam format --check src test   # check formatting
 gleam run -- --help             # run the compiler from source
 ```
 
+Import checking keeps a failed module’s original syntax diagnostic without reporting it as missing at every import site. Genuinely missing modules still receive their own errors.
+
 Bug reports and ideas are welcome in the [issues](https://github.com/pooka-lang/pooka/issues).
 
 ## Licence

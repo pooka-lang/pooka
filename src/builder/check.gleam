@@ -156,26 +156,44 @@ fn check_graph_with_overlays(
         False -> owner.dependencies
       }
       let visible = [owner.name, ..list.map(dependencies, fn(dep) { dep.name })]
-      let targets =
+      // Read only the neighbours this package is allowed to visit.
+      let visible_files =
         groups
         |> list.filter(fn(target) { list.contains(visible, target.0.name) })
-        |> list.flat_map(fn(target) {
-          list.filter_map(
-            list.filter(target.1, fn(file) {
-              file.lexed.errors == [] && file.parsed.errors == []
-            }),
-            fn(file) {
-              compiler.expected_module_path(file.path)
-              |> result.map(fn(identity) {
-                module.SourceModule(
-                  package.module_owner(identity, loaded.name).1,
-                  file.path,
-                  file.parsed.module,
-                )
-              })
-            },
-          )
+        |> list.flat_map(fn(target) { target.1 })
+
+      // A broken file still has an address. Remember it without treating
+      // its unfinished syntax as a usable module.
+      let failed_modules =
+        visible_files
+        |> list.filter(fn(file) {
+          file.lexed.errors != [] || file.parsed.errors != []
         })
+        |> list.filter_map(fn(file) {
+          compiler.expected_module_path(file.path)
+          |> result.map(fn(identity) {
+            package.module_owner(identity, loaded.name).1
+          })
+        })
+        |> set.from_list
+
+      // Only successfully parsed modules may lend their declarations.
+      let targets =
+        visible_files
+        |> list.filter(fn(file) {
+          file.lexed.errors == [] && file.parsed.errors == []
+        })
+        |> list.filter_map(fn(file) {
+          compiler.expected_module_path(file.path)
+          |> result.map(fn(identity) {
+            module.SourceModule(
+              package.module_owner(identity, loaded.name).1,
+              file.path,
+              file.parsed.module,
+            )
+          })
+        })
+
       let clients =
         list.map(
           list.filter(group.1, fn(file) {
@@ -185,7 +203,7 @@ fn check_graph_with_overlays(
             module.SourceModule(file.path, file.path, file.parsed.module)
           },
         )
-      module.check_imports(clients, targets)
+      module.check_imports(clients, targets, failed_modules)
     })
 
   let identities =

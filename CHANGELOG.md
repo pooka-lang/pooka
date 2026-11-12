@@ -1,6 +1,10 @@
 # Changelog
 
-All notable changes to the Pooka toolchain are documented in this file.
+## Unreleased
+
+### Bug fixes
+
+- Fix misleading “unknown module” diagnostics when an imported module fails to parse (#5).
 
 ## 0.1.0
 

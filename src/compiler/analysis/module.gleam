@@ -129,9 +129,13 @@ fn cycle_diagnostic(reversed: List(#(String, Edge))) -> Diagnostic {
   })
 }
 
+/// A broken neighbour still lives at its address. Failed modules have their
+/// own source diagnostics; do not send every importer looking for a missing
+/// house, or inspect declarations from an unfinished syntax tree.
 pub fn check_imports(
   clients: List(SourceModule),
   targets: List(SourceModule),
+  failed_modules: Set(String),
 ) -> List(Diagnostic) {
   let exports =
     targets
@@ -148,9 +152,18 @@ pub fn check_imports(
     |> list.flat_map(fn(imported) {
       let identity = string.join(imported.module.segments, "/")
       case dict.get(exports, identity) {
-        Error(Nil) -> [
-          unknown_module(imported, identity, dict.keys(exports), client.path),
-        ]
+        Error(Nil) ->
+          case set.contains(failed_modules, identity) {
+            True -> []
+            False -> [
+              unknown_module(
+                imported,
+                identity,
+                dict.keys(exports),
+                client.path,
+              ),
+            ]
+          }
         Ok(names) ->
           imported.items
           |> list.filter_map(fn(item) {
