@@ -3,8 +3,11 @@
 
 import birdie
 import cli/command
+import compiler/codegen/beam
+import compiler/codegen/erlang
 import compiler/parser/ast
 import compiler/typesystem/module_infer
+import compiler/typesystem/typed_ast
 import compiler/typesystem/unify
 import diagnostics/diagnostic
 import diagnostics/render
@@ -140,4 +143,19 @@ pub fn invalid_spread_tail_snapshot_test() {
     diagnostic.Quiet,
   )
   |> birdie.snap(title: "types: list spread requires a compatible tail")
+}
+
+pub fn list_spread_lowers_directly_to_cons_cells_test() {
+  let syntax =
+    support.parse(
+      "module main\nprepend(rest: List(Int)) -> List(Int) { [1, 2, ..rest] }",
+    )
+  let assert Ok(inferred) =
+    module_infer.infer(syntax, dict.new(), unify.new(), support.path)
+  let assert Ok(typed) = typed_ast.checked(syntax, inferred, support.path)
+  let assert Ok(generated) = erlang.generate(typed, "app", "main", dict.new())
+  let assert Ok(_) = beam.compile(generated.forms)
+  let output = beam.pretty(generated.forms)
+  assert !string.contains(output, "append")
+  output |> birdie.snap(title: "codegen: list spread keeps its cons tail")
 }

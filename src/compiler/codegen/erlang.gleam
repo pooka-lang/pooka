@@ -784,7 +784,7 @@ fn expression(
     // ```text
     // [A, B, ..Rest] -> {cons,L,A,{cons,L,B,Rest}}
     // ```
-    // https://www.erlang.org/doc/apps/erts/absform.html#list-expressions
+    // https://www.erlang.org/doc/apps/erts/absform.html#expressions
     ast.ListSpread(values, tail, _) -> {
       use #(bindings, values, context) <- result.try(evaluate(
         list.append(values, [tail]),

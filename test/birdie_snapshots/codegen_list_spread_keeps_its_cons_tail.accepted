@@ -1,0 +1,17 @@
+---
+version: 2.0.2
+title: codegen: list spread keeps its cons tail
+---
+-module(pooka@app@main).
+-file("src/main.pooka", 1).
+-export([prepend/1]).
+prepend(M0) ->
+    begin
+        begin
+            M1 = 1,
+            M2 = 2,
+            M3 = M0,
+            [M1, M2 | M3]
+        end
+    end.
+
