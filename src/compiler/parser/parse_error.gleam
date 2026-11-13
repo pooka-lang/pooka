@@ -170,8 +170,6 @@ pub type ParseError {
 
   ConciseFieldType(field: Span, name: String)
 
-  PatternAlternatives(alternatives: Span)
-
   ConciseConstructor(constructor: Span, class_name: String)
 
   CallableColonReturn(colon: Span)
@@ -228,7 +226,6 @@ pub fn span(error: ParseError) -> Span {
     EmptyEnum(name:, ..) -> name
     EnumPatternArguments(arguments:, ..) -> arguments
     ConciseFieldType(field:, ..) -> field
-    PatternAlternatives(alternatives:) -> alternatives
     ConciseConstructor(constructor:, ..) -> constructor
     CallableColonReturn(colon:) -> colon
     ExternalColonReturn(colon:) -> colon
@@ -280,7 +277,6 @@ pub fn id(error: ParseError) -> String {
     EmptyEnum(..) -> "parse.empty_enum"
     EnumPatternArguments(..) -> "parse.enum_pattern_arguments"
     ConciseFieldType(..) -> "parse.concise_field_type"
-    PatternAlternatives(..) -> "parse.pattern_alternatives"
     ConciseConstructor(..) -> "parse.concise_constructor"
     CallableColonReturn(..) -> "parse.callable_colon_return"
     ExternalColonReturn(..) -> "parse.external_colon_return"
@@ -703,13 +699,6 @@ pub fn to_diagnostic(error: ParseError, path: String) -> Diagnostic {
         "",
         "Remove the parentheses",
         diagnostic.Automatic,
-      )
-
-    PatternAlternatives(..) ->
-      base("patterns cannot be combined with `|`")
-      |> diagnostic.primary(here, "Pooka has no pattern alternatives")
-      |> diagnostic.conclusion(
-        "Write a separate match branch for each pattern. In expressions, `|` is bitwise OR.",
       )
 
     ConciseFieldType(name:, ..) ->

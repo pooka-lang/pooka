@@ -406,6 +406,7 @@ pub type BitArrayOption {
 }
 
 pub type Pattern {
+  AlternativePattern(patterns: List(Pattern), span: Span)
 
   IntPattern(value: String, span: Span)
 
@@ -485,7 +486,8 @@ pub fn expression_span(expression: Expression) -> Span {
 
 pub fn pattern_span(pattern: Pattern) -> Span {
   case pattern {
-    IntPattern(span:, ..)
+    AlternativePattern(span:, ..)
+    | IntPattern(span:, ..)
     | FloatPattern(span:, ..)
     | StringPattern(span:, ..)
     | BoolPattern(span:, ..)
@@ -509,6 +511,8 @@ pub fn statement_span(statement: Statement) -> Span {
 
 pub fn pattern_expressions(pattern: Pattern) -> List(Expression) {
   case pattern {
+    AlternativePattern(patterns, _) ->
+      list.flat_map(patterns, pattern_expressions)
     TuplePattern(elements:, ..)
     | ListPattern(elements:, ..)
     | ConstructorPattern(arguments: elements, ..) ->
@@ -550,6 +554,16 @@ pub fn declaration_name(declaration: Declaration) -> Result(Name, Nil) {
 
 pub fn pattern_bindings(pattern: Pattern) -> List(Name) {
   case pattern {
+    AlternativePattern(patterns, _) ->
+      list.flat_map(patterns, pattern_bindings)
+      |> list.fold([], fn(names, name) {
+        case
+          list.any(names, fn(previous: Name) { previous.name == name.name })
+        {
+          True -> names
+          False -> list.append(names, [name])
+        }
+      })
     VariablePattern(name, span) -> [Name(name, span)]
     TuplePattern(elements:, ..) | ConstructorPattern(arguments: elements, ..) ->
       list.flat_map(elements, pattern_bindings)
@@ -576,5 +590,14 @@ pub fn type_span(annotation: TypeAnnotation) -> Span {
     | TypeVariable(span:, ..)
     | TupleType(span:, ..)
     | FunctionType(span:, ..) -> span
+  }
+}
+
+/// Return the source alternatives of one arm without copying its guard or body.
+/// A solitary pattern is still one alternative.
+pub fn pattern_alternatives(pattern: Pattern) -> List(Pattern) {
+  case pattern {
+    AlternativePattern(patterns, _) -> patterns
+    _ -> [pattern]
   }
 }

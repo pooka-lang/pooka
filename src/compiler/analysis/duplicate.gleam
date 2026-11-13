@@ -163,10 +163,15 @@ fn check_parameters(
 }
 
 fn check_pattern(value: ast.Pattern, path: String) -> List(Diagnostic) {
-  list.append(
-    duplicates(ast.pattern_bindings(value), path, "pattern_binding"),
-    list.flat_map(ast.pattern_expressions(value), expression(_, path)),
-  )
+  case value {
+    ast.AlternativePattern(values, _) ->
+      list.flat_map(values, check_pattern(_, path))
+    _ ->
+      list.append(
+        duplicates(ast.pattern_bindings(value), path, "pattern_binding"),
+        list.flat_map(ast.pattern_expressions(value), expression(_, path)),
+      )
+  }
 }
 
 fn block(value: ast.Block, path: String) -> List(Diagnostic) {

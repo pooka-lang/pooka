@@ -566,7 +566,7 @@ fn branches(
       ))
     start -> {
       use #(pattern, parser) <- result.try(parse_pattern.parse_pattern(parser))
-      use parser <- result.try(alternatives(parser))
+      use #(pattern, parser) <- result.try(alternatives(parser, [pattern]))
       use #(guard, parser) <- result.try(case state.is(parser, token.If) {
         False -> Ok(#(None, parser))
         True -> {
@@ -611,25 +611,35 @@ fn parse_loop(parser: Parser, keyword: Lexeme) -> Parsed(Expression) {
   Ok(#(ast.Loop(iteration:, body:, span:), parser))
 }
 
-fn alternatives(parser: Parser) -> Result(Parser, parse_error.ParseError) {
-  case state.current(parser) {
-    Lexeme(token: token.Bar, span: start) -> {
-      use parser <- result.try(skip_alternatives(parser))
-      let span = location.between(start.start, state.previous_end(parser))
-      Ok(state.report(parser, parse_error.PatternAlternatives(span)))
-    }
-    _ -> Ok(parser)
-  }
-}
-
-fn skip_alternatives(parser: Parser) -> Result(Parser, parse_error.ParseError) {
+/// Only match-arm boundaries give the bar its pattern meaning. The ordinary
+/// expression parser continues to read `left | right` as bitwise OR.
+fn alternatives(
+  parser: Parser,
+  reversed: List(ast.Pattern),
+) -> Parsed(ast.Pattern) {
   case state.is(parser, token.Bar) {
-    False -> Ok(parser)
     True -> {
-      use #(_, parser) <- result.try(
+      use #(pattern, parser) <- result.try(
         parse_pattern.parse_pattern(state.skip(parser)),
       )
-      skip_alternatives(parser)
+      alternatives(parser, [pattern, ..reversed])
+    }
+    False -> {
+      let assert [last, ..] = reversed
+      let patterns = list.reverse(reversed)
+      let assert [first, ..] = patterns
+      let pattern = case patterns {
+        [single] -> single
+        _ ->
+          ast.AlternativePattern(
+            patterns,
+            location.between(
+              ast.pattern_span(first).start,
+              ast.pattern_span(last).end,
+            ),
+          )
+      }
+      Ok(#(pattern, parser))
     }
   }
 }

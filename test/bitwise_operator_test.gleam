@@ -14,7 +14,6 @@ import cli/command
 import compiler/constant
 import compiler/lexer/token
 import compiler/parser/ast
-import compiler/parser/parse_error
 import compiler/typesystem/module_infer
 import compiler/typesystem/monotype
 import compiler/typesystem/unify
@@ -241,47 +240,35 @@ pub fn a_leading_operator_is_a_syntax_error_test() {
   assert front("f(a: Int) { & a }\n") != []
 }
 
-// A bar between patterns is not an alternative-pattern feature. Recovery
-// keeps the first pattern so the rest of the branch can still be inspected.
-pub fn bar_between_patterns_is_reported_test() {
-  assert front(
-      "f(v: Int) {\n  match v {\n    1 | 2 -> \"small\"\n    _ -> \"big\"\n  }\n}\n",
-    )
-    == ["parse.pattern_alternatives"]
+// Pattern bars belong to the arm header; expression bars keep their old job.
+pub fn bar_between_patterns_is_accepted_test() {
+  assert front("f(v: Int) { match v { 1 | 2 -> \"small\"\n_ -> \"big\" } }")
+    == []
 }
 
-pub fn several_alternatives_are_reported_once_test() {
-  let source =
-    "module main\nf(v: Int) {\n  match v {\n    1 | 2 | 3 -> 0\n    _ -> 1\n  }\n}\n"
-  let assert [parse_error.PatternAlternatives(span)] =
-    support.parse_errors(source)
-  assert support.text_at(source, span) == "| 2 | 3"
-}
-
-pub fn the_branch_keeps_its_first_pattern_test() {
-  let module =
-    support.parse_module_with_errors(
-      "module main\nf(v: Int) {\n  match v {\n    1 | 2 -> 0\n    _ -> 1\n  }\n}\n",
-    )
+pub fn several_alternatives_keep_their_patterns_and_span_test() {
+  let source = "module main\nf(v: Int) { match v { 1 | 2 | 3 -> 0\n_ -> 1 } }"
+  let module = support.parse(source)
   let assert [ast.FunctionDeclaration(function)] = module.declarations
   let assert [ast.ExpressionStatement(ast.Match(branches: [first, second], ..))] =
     function.body.statements
-  let assert ast.IntPattern("1", _) = first.pattern
+  let assert ast.AlternativePattern(
+    [ast.IntPattern("1", _), ast.IntPattern("2", _), ast.IntPattern("3", _)],
+    span,
+  ) = first.pattern
+  assert support.text_at(source, span) == "1 | 2 | 3"
   let assert ast.DiscardPattern(_) = second.pattern
 }
 
-pub fn class_and_enum_alternatives_are_reported_test() {
+pub fn enum_alternatives_are_accepted_test() {
   assert front(
-      "enum Light { Red, Green }\nf(v: Light) {\n  match v {\n    Light.Red | Light.Green -> 0\n  }\n}\n",
+      "enum Light { Red, Green }\nf(v: Light) { match v { Light.Red | Light.Green -> 0 } }",
     )
-    == ["parse.pattern_alternatives"]
+    == []
 }
 
-pub fn an_alternative_with_a_guard_is_reported_test() {
-  assert front(
-      "f(v: Int) {\n  match v {\n    1 | 2 if v > 0 -> 0\n    _ -> 1\n  }\n}\n",
-    )
-    == ["parse.pattern_alternatives"]
+pub fn an_alternative_with_a_guard_is_accepted_test() {
+  assert front("f(v: Int) { match v { 1 | 2 if v > 0 -> 0\n_ -> 1 } }") == []
 }
 
 pub fn bitwise_or_inside_a_guard_is_fine_test() {
@@ -452,11 +439,4 @@ pub fn bitwise_diagnostics_snapshot_test() {
     <> "\n---\n"
     <> support.render_all(report.diagnostics, source)
   birdie.snap(text, title: "bitwise operators: type errors")
-}
-
-pub fn pattern_alternatives_snapshot_test() {
-  support.rendered(
-    "module main\n\nsize(v: Int) -> String {\n  match v {\n    1 | 2 | 3 -> \"small\"\n    _ -> \"big\"\n  }\n}\n",
-  )
-  |> birdie.snap(title: "bitwise operators: pattern alternatives")
 }
