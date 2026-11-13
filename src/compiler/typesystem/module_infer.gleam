@@ -15,8 +15,9 @@
 //// For a recursive component, prepare identities and class schemas first, check
 //// bodies against provisional or independently quantified signatures next, and
 //// publish generalized schemes only after the component's checks have settled.
-//// A failed component publishes error types rather than an attractive but invalid
-//// signature that would mislead every later caller.
+//// A failed component keeps its diagnostics and cannot be built. Valid written
+//// contracts remain available to callers; unknown parts stay error types rather
+//// than inviting fresh guesses from the failed implementation.
 ////
 //// This is why the class registry distinguishes registered from prepared metadata.
 //// An empty field list on an unprepared class is not evidence of a zero-field
@@ -556,28 +557,26 @@ fn infer_group_from(
     False -> reports
   }
   let diagnostics = list.append(diagnostics, primitive_errors)
-  let #(environment, functions) =
+  let #(environment, functions, state) =
     list.fold(
       group,
-      #(progress.environment, progress.functions),
+      #(progress.environment, progress.functions, state),
       fn(acc, function) {
-        let #(environment, functions) = acc
+        let #(environment, functions, state) = acc
         let type_ = case dict.get(reports, function.name.name) {
           Ok(value) -> unify.apply(value, state)
           Error(Nil) -> monotype.ErrorType
         }
-        let generalized = scheme.generalize(type_, environment_schemes, state)
+        let #(published, state) =
+          published_function(function, type_, environment_schemes, state, path)
         #(
           dict.insert(
             environment,
             function.name.name,
-            infer.Binding(generalized, function.name.span),
+            infer.Binding(published.scheme, function.name.span),
           ),
-          dict.insert(
-            functions,
-            function.name.name,
-            Function(function.name, type_, generalized),
-          ),
+          dict.insert(functions, function.name.name, published),
+          state,
         )
       },
     )
@@ -588,6 +587,32 @@ fn infer_group_from(
     state,
     list.append(progress.diagnostics, diagnostics),
   ))
+}
+
+/// A written signature is useful recovery information, not evidence that the
+/// implementation passed. Never replace the body's diagnostics or infer an
+/// unwritten signature from a failed component.
+fn published_function(
+  source: ast.Function,
+  type_: Type,
+  environment: List(Scheme),
+  state: unify.State,
+  path: String,
+) -> #(Function, unify.State) {
+  let declared = case type_ {
+    monotype.ErrorType -> infer.recovery_scheme(source, state, path)
+    _ -> None
+  }
+  case declared {
+    Some(#(signature, state)) -> {
+      let #(type_, state) = scheme.instantiate(signature, state)
+      #(Function(source.name, type_, signature), state)
+    }
+    None -> #(
+      Function(source.name, type_, scheme.generalize(type_, environment, state)),
+      state,
+    )
+  }
 }
 
 /// Prepare participating classes before checking their methods, constructors and
@@ -834,23 +859,27 @@ fn infer_nominal_group(
             ),
           )
         })
-      let #(environment, inferred_functions) =
+      let #(environment, inferred_functions, state) =
         list.fold(
           functions,
-          #(environment, inferred_functions),
+          #(environment, inferred_functions, state),
           fn(acc, source) {
-            let signature = scheme.monomorphic(monotype.ErrorType)
+            let #(published, state) =
+              published_function(
+                source,
+                monotype.ErrorType,
+                outer_schemes,
+                acc.2,
+                path,
+              )
             #(
               dict.insert(
                 acc.0,
                 source.name.name,
-                infer.Binding(signature, source.name.span),
+                infer.Binding(published.scheme, source.name.span),
               ),
-              dict.insert(
-                acc.1,
-                source.name.name,
-                Function(source.name, monotype.ErrorType, signature),
-              ),
+              dict.insert(acc.1, source.name.name, published),
+              state,
             )
           },
         )
