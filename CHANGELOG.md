@@ -8,6 +8,8 @@
 
 ### Bug fixes
 
+- Respect explicit local binding annotations during generic inference, including nested containers and destructured patterns (#1).
+
 - Fix misleading “unknown module” diagnostics when an imported module fails to parse (#5).
 
 ## 0.1.0

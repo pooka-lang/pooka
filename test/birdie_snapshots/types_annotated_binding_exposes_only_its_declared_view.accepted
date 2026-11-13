@@ -1,0 +1,14 @@
+---
+version: 2.0.2
+title: types: annotated binding exposes only its declared view
+---
+error: unknown class member
+  ╭─ src/main.pooka:6:9
+  │
+6 │   value.only_a()
+  │         ───┬──
+  │            ╰─ The class declares no field or method with this name.
+  ╰─
+
+Found 1 error.
+
