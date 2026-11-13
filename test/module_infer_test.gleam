@@ -130,14 +130,13 @@ pub fn independent_function_errors_are_all_reported_test() {
   assert list.length(report.diagnostics) == 2
 }
 
-// After reporting the helper's own error, publish a poisoned result for
-// recovery. Its callers should not repeat an unrelated cascade of type
-// complaints.
-pub fn erroneous_helpers_are_poisoned_for_callers_test() {
+// Report the bad implementation while keeping its explicit result contract.
+// Callers must not lose a usable annotation because the body needs a repair.
+pub fn erroneous_helpers_keep_their_declared_result_for_callers_test() {
   let report = module("bad() -> Int { \"s\" }\nmain() { bad() }")
   assert list.length(report.diagnostics) == 1
   let assert [_, main] = report.functions
-  assert main.type_ == monotype.FunctionType([], monotype.ErrorType)
+  assert main.type_ == monotype.FunctionType([], monotype.IntType)
 }
 
 pub fn unsupported_requirement_annotations_are_explicit_test() {

@@ -1,0 +1,6 @@
+---
+version: 2.0.2
+title: types: failed body keeps its declared signature in JSON diagnostics
+---
+{"version":1,"diagnostics":[{"id":"type.unification","severity":"error","title":"type mismatch","labels":[{"location":{"path":"src/helpers.pooka","start":{"line":3,"column":28,"byte_offset":62},"end":{"line":3,"column":35,"byte_offset":69}},"message":"found String","importance":"primary"},{"location":{"path":"src/helpers.pooka","start":{"line":3,"column":24,"byte_offset":58},"end":{"line":3,"column":27,"byte_offset":61}},"message":"expected Int","importance":"secondary"}],"conclusion":"Each argument must match the type of its parameter.","notes":[],"suggestions":[],"fixes":[]}],"summary":{"errors":1,"warnings":0,"notices":0}}
+

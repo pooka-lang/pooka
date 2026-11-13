@@ -1,0 +1,14 @@
+---
+version: 2.0.2
+title: types: failed body keeps its declared signature in text diagnostics
+---
+error: type mismatch
+  ╭─ src/helpers.pooka:3:28
+  │
+3 │ make() -> List(Box) { [Box("wrong")] }
+  │                        ─┬─ ───┬───
+  │                         │     ╰─ found String
+  │                         ╰─ expected Int
+  ╰─
+Each argument must match the type of its parameter.
+Found 1 error.
