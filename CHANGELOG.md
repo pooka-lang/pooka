@@ -4,6 +4,8 @@
 
 ### Added
 
+- Construct lists with spread tails such as `[first, second, ..rest]`, lowered directly to cons cells (#3).
+
 - Read tuple elements with zero-based projections such as `pair.0`, including chained projections and compile-time bounds checks (#4).
 
 ### Bug fixes
