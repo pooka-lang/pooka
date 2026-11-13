@@ -112,3 +112,12 @@ pub fn invalid_contract_annotations_are_not_recovered_test() {
   assert expression_infer.recovery_scheme(function, unify.new(), support.path)
     == None
 }
+
+pub fn written_parameters_still_check_callers_when_the_result_is_unwritten_test() {
+  let report =
+    infer(
+      "make(value: Int) { Box(\"wrong\") }\nmain() { make(\"also wrong\") }",
+    )
+  assert list.length(report.diagnostics) == 2
+  assert signature(report, "make") == "fn(Int) -> <error>"
+}

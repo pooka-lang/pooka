@@ -2585,7 +2585,8 @@ pub fn declared_scheme(
   path: String,
 ) -> Option(#(Scheme, unify.State)) {
   case
-    list.all(function.parameters, fn(parameter) {
+    option.is_some(function.return_type)
+    && list.all(function.parameters, fn(parameter) {
       option.is_some(parameter.annotation)
     })
   {
@@ -2596,7 +2597,7 @@ pub fn declared_scheme(
 
 /// Recover only the contract written by the author. A failed implementation is
 /// still an error, but its declared result can keep later callers well typed.
-/// Missing parameter annotations become error types rather than guesses.
+/// Missing annotations become error types rather than guesses.
 ///
 /// ```pooka
 /// make() -> List(Box) { [Box("wrong")] }
@@ -2609,10 +2610,10 @@ pub fn recovery_scheme(
 ) -> Option(#(Scheme, unify.State)) {
   let annotations =
     list.map(function.parameters, fn(parameter) { parameter.annotation })
-  case function.return_type {
-    None -> None
-    Some(result) -> {
-      let written = option.values([Some(result), ..annotations])
+  case option.values([function.return_type, ..annotations]) {
+    [] -> None
+    [_, ..] -> {
+      let written = option.values([function.return_type, ..annotations])
       let #(generics, variables, state) =
         written
         |> list.flat_map(annotation_variables)
@@ -2639,8 +2640,11 @@ pub fn recovery_scheme(
           }
         })
         |> result.try(fn(parameters) {
-          annotation_type(result, generics, state, path)
-          |> result.map(monotype.FunctionType(parameters, _))
+          let result = case function.return_type {
+            Some(value) -> annotation_type(value, generics, state, path)
+            None -> Ok(monotype.ErrorType)
+          }
+          result |> result.map(monotype.FunctionType(parameters, _))
         })
       case declared {
         Ok(type_) -> Some(#(scheme.quantified(type_, variables), state))
