@@ -555,7 +555,29 @@ main() {
 }
 ```
 
-Pooka has no `|` between patterns. If two patterns should do the same thing, write two branches. It is a little more typing, and a little more honest.
+### Pattern alternatives
+
+Patterns that lead to the same answer can share one doorway:
+
+```pooka
+module main
+
+greet(args: List(String)) -> String {
+  match args {
+    [] | ["--help"] | ["-h"] -> "greet NAME"
+    [name] | ["greet", name] -> "hello, " + name
+    _ -> "too many visitors"
+  }
+}
+
+main() {
+  echo greet(["greet", "finch"])
+}
+```
+
+Each alternative must bind the same names with compatible types. `[name] | [] -> name` cannot work: the empty list has brought nobody called `name`.
+
+The first matching alternative supplies the bindings. A shared guard runs once; if it is `False`, Pooka tries the next arm, without trying the remaining alternatives in this one. The subject and selected body also run once. In expressions, `|` still means bitwise OR.
 
 ### Lists
 
