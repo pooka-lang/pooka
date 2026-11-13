@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0
+
 ### Added
 
 - Share match arms with pattern alternatives such as `[] | ["--help"] | ["-h"] -> help()`, including guards and compatible bindings (#6).
