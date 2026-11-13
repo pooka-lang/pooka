@@ -9,6 +9,7 @@
 ### Bug fixes
 
 - Fix misleading “unknown module” diagnostics when an imported module fails to parse (#5).
+- Keep declared function signatures available after body errors, avoiding misleading follow-on diagnostics at correct call sites (#2).
 
 ## 0.1.0
 
