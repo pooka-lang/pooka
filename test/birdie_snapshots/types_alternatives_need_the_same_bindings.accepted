@@ -1,0 +1,16 @@
+---
+version: 2.0.2
+title: types: alternatives need the same bindings
+---
+error: incompatible pattern alternatives
+  ╭─ src/main.pooka:2:42
+  │
+2 │ read(values: List(Int)) { match values { [x] | [] -> x
+  │                                          ────┬───
+  │                                              ╰─ `x` is not bound in every alternative
+  ╰─
+
+Every alternative must bind the same names with compatible types before sharing a guard and body.
+
+Found 1 error.
+

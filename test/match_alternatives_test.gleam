@@ -1,15 +1,21 @@
 //// Several patterns may share a doorway, but only one guard opens it.
 //// These small programs watch the bindings and effects on both sides.
 
+import birdie
 import cli/command
+import compiler/codegen/beam
+import compiler/codegen/erlang
 import compiler/typesystem/module_infer
+import compiler/typesystem/typed_ast
 import compiler/typesystem/unify
 import diagnostics/diagnostic
+import diagnostics/render
 import gleam/dict
 import gleam/list
 import gleam/string
 import support
 import tools/formatter
+import utilities/colour
 
 fn errors(source: String) -> List(diagnostic.Diagnostic) {
   let assert Ok(report) =
@@ -191,6 +197,32 @@ pub fn alternatives_format_stably_with_expression_bitwise_or_test() {
   assert formatter.format(formatted) == Ok(formatted)
 }
 
+pub fn missing_alternative_binding_snapshot_test() {
+  let source =
+    "read(values: List(Int)) { match values { [x] | [] -> x\n_ -> 0 } }"
+  render.render_all(
+    errors(source),
+    dict.from_list([#(support.path, "module main\n" <> source)]),
+    colour.PlainText,
+    diagnostic.Quiet,
+  )
+  |> birdie.snap(title: "types: alternatives need the same bindings")
+}
+
+pub fn alternatives_abstract_forms_snapshot_test() {
+  let syntax =
+    support.parse(
+      "module main\nread(value: #(Int, Int)) { match value { #(x, 0) | #(0, x) -> x\n_ -> 0 } }",
+    )
+  let assert Ok(inferred) =
+    module_infer.infer(syntax, dict.new(), unify.new(), support.path)
+  let assert Ok(typed) = typed_ast.checked(syntax, inferred, support.path)
+  let assert Ok(generated) = erlang.generate(typed, "app", "main", dict.new())
+  let assert Ok(_) = beam.compile(generated.forms)
+  beam.pretty(generated.forms)
+  |> birdie.snap(title: "codegen: shared pattern alternative bindings")
+}
+
 pub fn alternative_patterns_narrow_hierarchies_to_a_shared_view_test() {
   let result =
     run(
@@ -244,4 +276,16 @@ pub fn long_alternatives_and_comments_format_stably_test() {
   let assert Ok(formatted) = formatter.format(source)
   assert string.contains(formatted, "// a different doorway")
   assert formatter.format(formatted) == Ok(formatted)
+}
+
+pub fn incompatible_alternative_binding_snapshot_test() {
+  let source =
+    "read(value: #(Int, String)) { match value { #(x, _) | #(_, x) -> x } }"
+  render.render_all(
+    errors(source),
+    dict.from_list([#(support.path, "module main\n" <> source)]),
+    colour.PlainText,
+    diagnostic.Quiet,
+  )
+  |> birdie.snap(title: "types: alternative bindings need compatible types")
 }

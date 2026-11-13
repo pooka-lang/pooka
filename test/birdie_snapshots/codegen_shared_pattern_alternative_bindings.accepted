@@ -1,0 +1,46 @@
+---
+version: 2.0.2
+title: codegen: shared pattern alternative bindings
+---
+-module(pooka@app@main).
+-file("src/main.pooka", 1).
+-export([read/1]).
+read(M0) ->
+    begin
+        begin
+            M1 = M0,
+            begin
+                M6 =
+                    fun() ->
+                           begin
+                               M5 =
+                                   fun() ->
+                                          error(pooka_match_failure)
+                                   end,
+                               case M1 of
+                                   _ ->
+                                       0;
+                                   _ ->
+                                       M5()
+                               end
+                           end
+                    end,
+                case
+                    case M1 of
+                        {M2, 0} ->
+                            {matched, M2};
+                        {0, M3} ->
+                            {matched, M3};
+                        _ ->
+                            no_match
+                    end
+                of
+                    {matched, M4} ->
+                        M4;
+                    _ ->
+                        M6()
+                end
+            end
+        end
+    end.
+
