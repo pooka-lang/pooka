@@ -778,6 +778,24 @@ fn expression(
       }
       Ok(#(sequence(bindings, value, line), context))
     }
+    // A spread supplies the final cons tail; it is never appended by copying.
+    // Evaluate the heads first, then the tail, each exactly once.
+    //
+    // ```text
+    // [A, B, ..Rest] -> {cons,L,A,{cons,L,B,Rest}}
+    // ```
+    // https://www.erlang.org/doc/apps/erts/absform.html#list-expressions
+    ast.ListSpread(values, tail, _) -> {
+      use #(bindings, values, context) <- result.try(evaluate(
+        list.append(values, [tail]),
+        context,
+      ))
+      let assert [tail, ..reversed] = list.reverse(values)
+      Ok(#(
+        sequence(bindings, list_term(list.reverse(reversed), tail, line), line),
+        context,
+      ))
+    }
     ast.BlockExpression(value) -> {
       let outer = context.locals
       use #(body, context) <- result.try(block(value, context))

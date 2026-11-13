@@ -207,6 +207,8 @@ fn expression(value: ast.Expression, path: String) -> List(Diagnostic) {
     | ast.SelfExpression(..)
     | ast.SuperExpression(..)
     | ast.Continue(..) -> []
+    ast.ListSpread(elements, tail, _) ->
+      list.flat_map(list.append(elements, [tail]), expression(_, path))
     ast.ListExpression(elements:, ..) | ast.TupleExpression(elements:, ..) ->
       list.flat_map(elements, expression(_, path))
     ast.BitArrayExpression(segments:, ..) ->

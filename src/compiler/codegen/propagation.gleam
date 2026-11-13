@@ -58,6 +58,8 @@ fn expression(value: ast.Expression) -> Bool {
   case value {
     ast.Propagate(..) -> True
     ast.AnonymousFunction(..) -> False
+    ast.ListSpread(values, tail, _) ->
+      list.any(values, expression) || expression(tail)
     ast.ListExpression(values, _) | ast.TupleExpression(values, _) ->
       list.any(values, expression)
     ast.BlockExpression(body) -> block(body)

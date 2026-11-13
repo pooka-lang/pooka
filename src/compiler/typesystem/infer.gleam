@@ -312,6 +312,60 @@ fn expression_inner(
         ),
       )
     }
+    // The tail contributes its element view, rather than becoming another item.
+    // Joining both list views also permits an A head before a List(Base) tail.
+    //
+    // ```pooka
+    // prepend(value: a, rest: List(a)) -> List(a) { [value, ..rest] }
+    // ```
+    ast.ListSpread(elements, tail, span) -> {
+      use heads <- result.try(expression_type(
+        ast.ListExpression(elements, span),
+        environment,
+        state,
+        path,
+        context,
+      ))
+      use tail_report <- result.try(expression_type(
+        tail,
+        environment,
+        heads.state,
+        path,
+        context,
+      ))
+      let #(element, state) = unify.fresh(tail_report.state)
+      let expected = monotype.ListType(element)
+      let state =
+        join_into(expected, [heads.type_, tail_report.type_], span, path, state)
+      let heads_checked =
+        require(
+          Inferred(heads.type_, state, heads.diagnostics),
+          expected,
+          span,
+          span,
+          path,
+          "List heads must agree with their spread tail.",
+        )
+      let tail_checked =
+        require(
+          Inferred(
+            tail_report.type_,
+            heads_checked.state,
+            list.append(heads_checked.diagnostics, tail_report.diagnostics),
+          ),
+          expected,
+          span,
+          ast.expression_span(tail),
+          path,
+          "A spread tail must be a list with compatible elements.",
+        )
+      Ok(
+        Inferred(
+          ..tail_checked,
+          type_: unify.apply(expected, tail_checked.state),
+        ),
+      )
+    }
     ast.BlockExpression(block) ->
       block_type(block, environment, state, path, context)
     ast.AnonymousFunction(parameters, return_type, body, span) ->

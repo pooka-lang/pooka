@@ -410,17 +410,7 @@ fn primary(parser: Parser) -> Parsed(Expression) {
     token.Super -> simple(ast.SuperExpression(span:))
     token.Continue -> simple(ast.Continue(span:))
     token.LeftParen -> grouping(state.skip(parser), start)
-    token.LeftSquare -> {
-      use #(elements, parser) <- result.try(state.delimited(
-        state.skip(parser),
-        start,
-        token.RightSquare,
-        parse_error.ListLiteral,
-        parse_expression,
-      ))
-      let span = state.span_from(parser, span.start)
-      Ok(#(ast.ListExpression(elements:, span:), parser))
-    }
+    token.LeftSquare -> list_expression(state.skip(parser), start, [])
     token.HashLeftParen -> {
       use #(elements, parser) <- result.try(state.delimited(
         state.skip(parser),
@@ -640,6 +630,61 @@ fn skip_alternatives(parser: Parser) -> Result(Parser, parse_error.ParseError) {
         parse_pattern.parse_pattern(state.skip(parser)),
       )
       skip_alternatives(parser)
+    }
+  }
+}
+
+/// A spread is the last guest in a list. Keep it separate from ordinary
+/// elements so neither inference nor lowering can mistake it for one item.
+///
+/// ```pooka
+/// [first, second, ..rest]
+/// ```
+fn list_expression(
+  parser: Parser,
+  open: Lexeme,
+  reversed: List(Expression),
+) -> Parsed(Expression) {
+  case state.current_token(parser) {
+    token.RightSquare -> {
+      let parser = state.skip(parser)
+      Ok(#(
+        ast.ListExpression(
+          list.reverse(reversed),
+          state.span_from(parser, open.span.start),
+        ),
+        parser,
+      ))
+    }
+    token.DotDot -> {
+      use #(tail, parser) <- result.try(parse_expression(state.skip(parser)))
+      let #(_, parser) = state.accept(parser, token.Comma)
+      use #(_, parser) <- result.try(state.expect(parser, token.RightSquare))
+      Ok(#(
+        ast.ListSpread(
+          list.reverse(reversed),
+          tail,
+          state.span_from(parser, open.span.start),
+        ),
+        parser,
+      ))
+    }
+    _ -> {
+      use #(element, parser) <- result.try(parse_expression(parser))
+      case state.current_token(parser) {
+        token.Comma ->
+          list_expression(state.skip(parser), open, [element, ..reversed])
+        token.RightSquare ->
+          list_expression(parser, open, [element, ..reversed])
+        _ ->
+          Error(state.unclosed(
+            parser,
+            open,
+            token.RightSquare,
+            parse_error.ListLiteral,
+            state.current(parser),
+          ))
+      }
     }
   }
 }

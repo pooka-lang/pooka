@@ -237,6 +237,8 @@ fn expression(value: ast.Expression, bound: Set(String)) -> Set(String) {
     | ast.SelfExpression(..)
     | ast.SuperExpression(..)
     | ast.Continue(..) -> set.new()
+    ast.ListSpread(elements, tail, _) ->
+      expressions(list.append(elements, [tail]), bound)
     ast.ListExpression(elements:, ..) | ast.TupleExpression(elements:, ..) ->
       expressions(elements, bound)
     ast.BlockExpression(value) -> block(value, bound)

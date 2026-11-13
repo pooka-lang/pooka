@@ -259,6 +259,8 @@ fn expression(
         }),
       )
     ast.BlockExpression(value) -> block(value, context, path)
+    ast.ListSpread(elements, tail, _) ->
+      expressions(list.append(elements, [tail]), context, path)
     ast.ListExpression(elements:, ..) | ast.TupleExpression(elements:, ..) ->
       expressions(elements, context, path)
     ast.BitArrayExpression(segments:, ..) ->
