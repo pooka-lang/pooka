@@ -553,10 +553,13 @@ fn branches(
         Some(ast.BoolLiteral(False, _)) -> Flow(..guarded, normal: [])
         _ -> guarded |> then(expression(branch.body, _, branch_context))
       }
-      let irrefutable = case branch.pattern {
-        ast.VariablePattern(..) | ast.DiscardPattern(..) -> True
-        _ -> False
-      }
+      let irrefutable =
+        list.any(ast.pattern_alternatives(branch.pattern), fn(pattern) {
+          case pattern {
+            ast.VariablePattern(..) | ast.DiscardPattern(..) -> True
+            _ -> False
+          }
+        })
       let remaining = case irrefutable, branch.guard {
         True, None | True, Some(ast.BoolLiteral(True, _)) -> []
         True, Some(_) -> guarded.normal

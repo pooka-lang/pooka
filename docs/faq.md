@@ -31,9 +31,9 @@ match cups > 0 {
 
 `if` does appear in one place: as a guard in a `match` branch, like `n if n < 0 -> ...`.
 
-## Why can't I write `#(True, _) | #(_, True)` in a pattern?
+## Can several patterns share a match branch?
 
-Pooka has no pattern alternatives. Write one branch for each pattern. It is a little more typing, and every branch says exactly what it matches.
+Yes. Write `#(True, _) | #(_, True) -> True` to give them one doorway. Every alternative must bind the same names with compatible types. A guard runs once after the first matching alternative; if it says `False`, Pooka moves to the next branch.
 
 ## Why does `1 + 2.0` fail?
 

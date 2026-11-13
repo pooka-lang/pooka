@@ -615,6 +615,17 @@ fn block(value: ast.Block, scope: Scope) -> List(Event) {
 
 fn resolve_pattern(value: ast.Pattern, scope: Scope) -> #(Scope, List(Event)) {
   case value {
+    ast.AlternativePattern(values, _) -> {
+      let events =
+        list.flat_map(values, fn(value) { resolve_pattern(value, scope).1 })
+      #(
+        bind(
+          scope,
+          list.map(ast.pattern_bindings(value), fn(name) { name.name }),
+        ),
+        events,
+      )
+    }
     ast.VariablePattern(name, _) -> #(bind(scope, [name]), [])
     ast.DiscardPattern(_)
     | ast.IntPattern(..)

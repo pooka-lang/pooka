@@ -1,0 +1,16 @@
+---
+version: 2.0.2
+title: types: alternative bindings need compatible types
+---
+error: incompatible pattern alternatives
+  ╭─ src/main.pooka:2:45
+  │
+2 │ read(value: #(Int, String)) { match value { #(x, _) | #(_, x) -> x } }
+  │                                             ────────┬────────
+  │                                                     ╰─ `x` has incompatible types across alternatives
+  ╰─
+
+Every alternative must bind the same names with compatible types before sharing a guard and body.
+
+Found 1 error.
+

@@ -1670,10 +1670,9 @@ fn ordinary_branches(
       ))
     [branch, ..rest] -> {
       let outer = context.locals
-      use #(pattern, context) <- result.try(lower_pattern(
-        branch.pattern,
-        context,
-      ))
+      use #(branch_subject, pattern, context) <- result.try(
+        lower_branch_pattern(branch.pattern, subject, context),
+      )
       use #(body, context) <- result.try(expression(branch.body, context))
       use #(guard, context) <- result.try(case branch.guard {
         None -> Ok(#(None, context))
@@ -1707,7 +1706,7 @@ fn ordinary_branches(
         sequence(
           [continuation],
           f.node("case", line, [
-            subject,
+            branch_subject,
             f.Sequence([
               f.clause([pattern], [body], line),
               f.clause([f.variable("_", line)], [fallback], line),
@@ -1737,6 +1736,8 @@ fn lower_pattern(
   let span = ast.pattern_span(value)
   let line = span.start.line
   case value {
+    ast.AlternativePattern(..) ->
+      Error(Unsupported(span, "alternatives outside a match arm"))
     ast.VariablePattern(name, _) -> {
       let #(variable, context) = fresh(context, line)
       Ok(#(
@@ -2986,10 +2987,9 @@ fn constructor_branches(
       ))
     [branch, ..rest] -> {
       let outer = context
-      use #(pattern, context) <- result.try(lower_pattern(
-        branch.pattern,
-        context,
-      ))
+      use #(branch_subject, pattern, context) <- result.try(
+        lower_branch_pattern(branch.pattern, subject, context),
+      )
       use #(guard, context) <- result.try(case branch.guard {
         None -> Ok(#(None, context))
         Some(guard) ->
@@ -3044,7 +3044,7 @@ fn constructor_branches(
       }
       let matched =
         f.node("case", line, [
-          subject,
+          branch_subject,
           f.Sequence([
             f.clause([pattern], [body], line),
             f.clause([f.variable("_", line)], [fallback_pattern], line),
@@ -3821,5 +3821,83 @@ fn enum_of(
         False -> unify.named_enum(context.state, context.path, alias, name.name)
       }
     _ -> Error(Nil)
+  }
+}
+
+/// Select one alternative before entering the shared guard. A false guard
+/// continues with the next arm, rather than trying another door in this one.
+/// Fresh inner bindings are gathered into one tuple for the shared body.
+///
+/// ```text
+/// [x] | ["greet", x] -> body
+/// case Subject of P1 -> {matched,X1}; P2 -> {matched,X2}; _ -> no_match end
+/// ```
+/// Erlang abstract format: https://www.erlang.org/doc/apps/erts/absform.html#expressions.
+fn lower_branch_pattern(
+  value: ast.Pattern,
+  subject: f.Term,
+  context: Context,
+) -> Result(#(f.Term, f.Term, Context), Unsupported) {
+  case value {
+    ast.AlternativePattern(values, span) -> {
+      let line = span.start.line
+      let outer = context.locals
+      let names = ast.pattern_bindings(value)
+      use #(reversed, context) <- result.try(
+        list.try_fold(values, #([], context), fn(acc, pattern) {
+          use #(pattern, context) <- result.try(lower_pattern(
+            pattern,
+            Context(..acc.1, locals: outer),
+          ))
+          let bindings =
+            list.map(names, fn(name) {
+              let assert Ok(value) = dict.get(context.locals, name.name)
+              value
+            })
+          let tuple =
+            f.node("tuple", line, [
+              f.Sequence([f.atom("matched", line), ..bindings]),
+            ])
+          Ok(#([f.clause([pattern], [tuple], line), ..acc.0], context))
+        }),
+      )
+      let selector =
+        f.node("case", line, [
+          subject,
+          f.Sequence(
+            list.append(list.reverse(reversed), [
+              f.clause(
+                [f.variable("_", line)],
+                [f.atom("no_match", line)],
+                line,
+              ),
+            ]),
+          ),
+        ])
+      let #(variables, context) =
+        list.fold(
+          names,
+          #([], Context(..context, locals: outer)),
+          fn(acc, name) {
+            let #(variable, context) = fresh(acc.1, line)
+            #(
+              [variable, ..acc.0],
+              Context(
+                ..context,
+                locals: dict.insert(context.locals, name.name, variable),
+              ),
+            )
+          },
+        )
+      let pattern =
+        f.node("tuple", line, [
+          f.Sequence([f.atom("matched", line), ..list.reverse(variables)]),
+        ])
+      Ok(#(selector, pattern, context))
+    }
+    _ -> {
+      use #(pattern, context) <- result.try(lower_pattern(value, context))
+      Ok(#(subject, pattern, context))
+    }
   }
 }

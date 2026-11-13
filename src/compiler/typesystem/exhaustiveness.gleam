@@ -93,35 +93,54 @@ pub fn check_in(
       let #(matrix, warnings) =
         list.fold(branches, #([], []), fn(acc, branch) {
           let #(matrix, warnings) = acc
-          let alternatives = normalize(branch.pattern, state, path)
-          let reachable =
-            list.any(alternatives, fn(pattern) {
-              result.is_ok(useful(matrix, [pattern], [subject], state))
-            })
-          let warnings = case reachable {
-            True -> warnings
-            False -> [
-              diagnostic.warning(
-                "type.unreachable_pattern",
-                "unreachable pattern",
-              )
-                |> diagnostic.primary(
-                  location.new(path, ast.pattern_span(branch.pattern)),
-                  "earlier unguarded branches already cover this pattern",
+          let #(expanded, warnings) =
+            list.fold(
+              ast.pattern_alternatives(branch.pattern),
+              #(matrix, warnings),
+              fn(acc, source_pattern) {
+                let #(matrix, warnings) = acc
+                let alternatives = normalize(source_pattern, state, path)
+                let reachable =
+                  list.any(alternatives, fn(pattern) {
+                    result.is_ok(useful(matrix, [pattern], [subject], state))
+                  })
+                let warnings = case reachable {
+                  True -> warnings
+                  False -> [
+                    diagnostic.warning(
+                      "type.unreachable_pattern",
+                      "unreachable pattern",
+                    )
+                      |> diagnostic.primary(
+                        location.new(path, ast.pattern_span(source_pattern)),
+                        case branch.pattern {
+                          ast.AlternativePattern(..) ->
+                            "earlier alternatives or unguarded branches already cover this pattern"
+                          _ ->
+                            "earlier unguarded branches already cover this pattern"
+                        },
+                      )
+                      |> diagnostic.conclusion(case branch.pattern {
+                        ast.AlternativePattern(..) ->
+                          "This pattern can never be selected."
+                        _ -> "This match branch can never be selected."
+                      }),
+                    ..warnings
+                  ]
+                }
+                #(
+                  list.append(
+                    list.reverse(
+                      list.map(alternatives, fn(pattern) { [pattern] }),
+                    ),
+                    matrix,
+                  ),
+                  warnings,
                 )
-                |> diagnostic.conclusion(
-                  "This match branch can never be selected.",
-                ),
-              ..warnings
-            ]
-          }
-
+              },
+            )
           let matrix = case branch.guard {
-            None ->
-              list.append(
-                list.reverse(list.map(alternatives, fn(pattern) { [pattern] })),
-                matrix,
-              )
+            None -> expanded
             Some(_) -> matrix
           }
           #(matrix, warnings)
@@ -160,6 +179,8 @@ fn normalize(
   path: String,
 ) -> List(Pattern) {
   case value {
+    ast.AlternativePattern(values, _) ->
+      list.flat_map(values, normalize(_, state, path))
     ast.VariablePattern(..) | ast.DiscardPattern(..) -> [Any]
     ast.BoolPattern(value, _) -> [Constructor(Boolean(value), [])]
     ast.NilPattern(_) -> [Constructor(NilValue, [])]

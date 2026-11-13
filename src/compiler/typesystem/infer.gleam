@@ -1726,6 +1726,8 @@ fn bind_pattern(
   path: String,
 ) -> Result(PatternReport, Unsupported) {
   case pattern {
+    ast.AlternativePattern(values, span) ->
+      bind_alternatives(values, span, subject, environment, state, path)
     ast.VariablePattern(name, span) ->
       Ok(PatternReport(
         dict.insert(
@@ -4304,4 +4306,155 @@ fn enum_pattern(
       )
     }
   }
+}
+
+/// Every door in a shared arm must bring the same names into the room.
+/// Check each pattern in its own lexical scope, then join the views available
+/// to the single guard and body. Missing names are poisoned to avoid cascades.
+///
+/// ```pooka
+/// [name] | ["greet", name] -> name
+/// ```
+fn bind_alternatives(
+  values: List(ast.Pattern),
+  span: Span,
+  subject: Type,
+  environment: Environment,
+  state: unify.State,
+  path: String,
+) -> Result(PatternReport, Unsupported) {
+  use #(reports, state) <- result.try(
+    list.try_fold(values, #([], state), fn(acc, value) {
+      use report <- result.try(bind_pattern(
+        value,
+        subject,
+        environment,
+        acc.1,
+        path,
+      ))
+      Ok(#([#(value, report), ..acc.0], report.state))
+    }),
+  )
+  let reports = list.reverse(reports)
+  let names = ast.pattern_bindings(ast.AlternativePattern(values, span))
+  let #(bindings, state, diagnostics) =
+    list.fold(names, #(environment, state, []), fn(acc, name) {
+      let #(bindings, state, diagnostics) = acc
+      let types =
+        list.filter_map(reports, fn(pair) {
+          case
+            list.any(ast.pattern_bindings(pair.0), fn(bound) {
+              bound.name == name.name
+            })
+          {
+            False -> Error(Nil)
+            True ->
+              case dict.get(pair.1.environment, name.name) {
+                Ok(Binding(bound_scheme, _)) ->
+                  Ok(scheme.instantiate(bound_scheme, state).0)
+                _ -> Error(Nil)
+              }
+          }
+        })
+      let complete = list.length(types) == list.length(values)
+      let joined = unify.join(state, types)
+      let #(type_, state, diagnostics) = case complete, joined {
+        True, Ok(type_) -> {
+          let origin =
+            unify.Origin(
+              location.new(path, name.span),
+              location.new(path, span),
+              "A shared pattern binding must have compatible types in every alternative.",
+            )
+          case
+            list.try_fold(types, state, fn(state, found) {
+              unify.subsume(type_, found, origin, state)
+            })
+          {
+            Ok(state) -> #(unify.apply(type_, state), state, diagnostics)
+            Error(_) -> #(monotype.ErrorType, state, [
+              alternative_binding_error(path, span, name.name, False),
+              ..diagnostics
+            ])
+          }
+        }
+        True, Error(_) -> {
+          let assert [first, ..rest] = types
+          let origin =
+            unify.Origin(
+              location.new(path, name.span),
+              location.new(path, span),
+              "A shared pattern binding must have compatible types in every alternative.",
+            )
+          let unified =
+            list.try_fold(rest, state, fn(state, type_) {
+              unify.unify(first, type_, origin, state)
+            })
+          case unified {
+            Ok(state) -> #(unify.apply(first, state), state, diagnostics)
+            Error(_) -> #(monotype.ErrorType, state, [
+              alternative_binding_error(path, span, name.name, False),
+              ..diagnostics
+            ])
+          }
+        }
+        False, _ -> #(monotype.ErrorType, state, [
+          alternative_binding_error(path, span, name.name, True),
+          ..diagnostics
+        ])
+      }
+      #(
+        dict.insert(
+          bindings,
+          name.name,
+          Binding(scheme.monomorphic(type_), name.span),
+        ),
+        state,
+        diagnostics,
+      )
+    })
+  let matched = case
+    list.try_map(reports, fn(pair) { option.to_result(pair.1.matched, Nil) })
+  {
+    Ok(types) ->
+      case unify.join(state, types) {
+        Ok(type_) -> Some(type_)
+        Error(_) -> None
+      }
+    Error(_) -> None
+  }
+  Ok(PatternReport(
+    bindings,
+    state,
+    list.append(
+      list.flat_map(reports, fn(pair) { pair.1.diagnostics }),
+      diagnostics,
+    ),
+    matched,
+  ))
+}
+
+/// Keep a missing binding distinct from an incompatible view of that binding.
+/// Both errors belong to the arm header, rather than its otherwise valid body.
+///
+/// ```text
+/// [x] | [] -> missing x; #(x, _) | #(_, x) -> incompatible Int/String
+/// ```
+fn alternative_binding_error(
+  path: String,
+  span: Span,
+  name: String,
+  missing: Bool,
+) -> Diagnostic {
+  diagnostic.error(
+    "type.alternative_binding",
+    "incompatible pattern alternatives",
+  )
+  |> diagnostic.primary(location.new(path, span), case missing {
+    True -> "`" <> name <> "` is not bound in every alternative"
+    False -> "`" <> name <> "` has incompatible types across alternatives"
+  })
+  |> diagnostic.conclusion(
+    "Every alternative must bind the same names with compatible types before sharing a guard and body.",
+  )
 }
