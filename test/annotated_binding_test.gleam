@@ -4,6 +4,7 @@
 //// initializer is not enough when a generic call later shares that type.
 
 import birdie
+import cli/command
 import compiler/typesystem/module_infer
 import compiler/typesystem/monotype
 import compiler/typesystem/unify
@@ -146,4 +147,38 @@ pub fn annotation_does_not_expose_subclass_only_members_snapshot_test() {
   |> birdie.snap(
     title: "types: annotated binding exposes only its declared view",
   )
+}
+
+fn run(name: String, source: String) -> command.Outcome {
+  use directory <- support.with_directory(name)
+  support.write(
+    directory <> "/pooka.toml",
+    "name = \"app\"\nversion = \"1.0.0\"\n",
+  )
+  support.write(directory <> "/src/main.pooka", "module main\n" <> source)
+  support.cli_main(["run"], command.plain(directory))
+}
+
+pub fn widened_binding_views_execute_with_subclass_dispatch_test() {
+  let report =
+    run(
+      "annotated_binding_dispatch",
+      "class Base { tag() -> String { \"base\" } }\nclass A is Base { tag() -> String { \"a\" } }\nclass B is Base { tag() -> String { \"b\" } }\n"
+        <> apply
+        <> "main() { let value: Base = A()\nassert apply(value, fn(_) { B() }).tag() == \"b\"\nlet #(nested, _): #(Base, Int) = #(A(), 1)\nassert apply(nested, fn(_) { B() }).tag() == \"b\"\nlet values: List(Base) = [A()]\nlet assert [selected] = apply(values, fn(_) { [B()] })\nassert selected.tag() == \"b\" }",
+    )
+  assert report.status == 0
+  assert support.diagnostics(report.stderr) == ""
+}
+
+pub fn annotated_interface_views_execute_with_another_implementation_test() {
+  let report =
+    run(
+      "annotated_interface_dispatch",
+      "interface Reader { read() -> Int }\nclass One with Reader { read() -> Int { 1 } }\nclass Two with Reader { read() -> Int { 2 } }\n"
+        <> apply
+        <> "main() { let reader: Reader = One()\nassert apply(reader, fn(_) { Two() }).read() == 2 }",
+    )
+  assert report.status == 0
+  assert support.diagnostics(report.stderr) == ""
 }
