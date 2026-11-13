@@ -2231,14 +2231,27 @@ fn binding_statement(
     Some(annotation) ->
       annotation_type(annotation, generics, found.state, path)
       |> result.map(fn(type_) {
-        require(
-          found,
-          type_,
-          ast.type_span(annotation),
-          ast.expression_span(value),
-          path,
-          "The binding must match its type annotation.",
-        )
+        let checked =
+          require(
+            found,
+            type_,
+            ast.type_span(annotation),
+            ast.expression_span(value),
+            path,
+            "The binding must match its type annotation.",
+          )
+        // The annotation is the view the binding promises to its callers.
+        // Checking that A fits Base must not leave the binding typed as A:
+        //
+        // ```pooka
+        // let value: Base = A()
+        // apply(value, fn(_) { B() }) // the callback may return another Base
+        // ```
+        // A rejected or already-broken initializer keeps its recovery type.
+        case checked.type_ {
+          monotype.ErrorType -> checked
+          _ -> Inferred(..checked, type_: unify.apply(type_, checked.state))
+        }
       })
   })
 
