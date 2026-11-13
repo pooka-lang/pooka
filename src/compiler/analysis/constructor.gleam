@@ -43,6 +43,8 @@ fn expression(value: ast.Expression) -> Bool {
     ast.Call(callee, arguments, _) ->
       list.any([callee, ..arguments], expression)
     ast.BlockExpression(block) -> has_super_call(block)
+    ast.ListSpread(elements, tail, _) ->
+      list.any(list.append(elements, [tail]), expression)
     ast.ListExpression(elements:, ..) | ast.TupleExpression(elements:, ..) ->
       list.any(elements, expression)
     ast.Match(subject, branches, _) ->

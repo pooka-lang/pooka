@@ -283,6 +283,19 @@ main() {
 
 Lists are immutable. `list.prepend` does not change `birds`. It gives back a new list with `"wren"` at the front, and the old list carries on, undisturbed, as if nothing happened. Adding to the front is cheap. Adding to the end has to walk the whole list first.
 
+The spread spelling does the same small job without an import:
+
+```pooka
+module main
+
+main() {
+  let rest = ["owl", "heron"]
+  echo ["wren", "finch", ..rest]
+}
+```
+
+The tail comes last and must be a list with compatible elements. Pooka evaluates the heads from left to right, then the tail, once each. The new cons cells keep the existing tail rather than copying it.
+
 ### Tuples
 
 A tuple is a small parcel of a fixed number of values, which may have different types.

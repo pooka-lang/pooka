@@ -286,6 +286,8 @@ pub type Expression {
 
   ListExpression(elements: List(Expression), span: Span)
 
+  ListSpread(elements: List(Expression), tail: Expression, span: Span)
+
   TupleExpression(elements: List(Expression), span: Span)
 
   BitArrayExpression(segments: List(BitArraySegment(Expression)), span: Span)
@@ -459,6 +461,7 @@ pub fn expression_span(expression: Expression) -> Span {
     | SelfExpression(span:)
     | SuperExpression(span:)
     | ListExpression(span:, ..)
+    | ListSpread(span:, ..)
     | TupleExpression(span:, ..)
     | BitArrayExpression(span:, ..)
     | AnonymousFunction(span:, ..)

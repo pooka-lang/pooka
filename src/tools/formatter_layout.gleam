@@ -348,6 +348,8 @@ fn complex(value: ast.Expression) -> Bool {
     ast.Match(..) | ast.Loop(..) | ast.BlockExpression(_) -> True
     ast.Call(callee, arguments, _) ->
       complex(callee) || list.any(arguments, complex)
+    ast.ListSpread(elements, tail, _) ->
+      list.any(elements, complex) || complex(tail)
     ast.ListExpression(elements, _) | ast.TupleExpression(elements, _) ->
       list.any(elements, complex)
     ast.Unary(_, subject, _)
@@ -399,6 +401,8 @@ fn expression(rules: Rules, value: ast.Expression) -> Rules {
         })
       block(rules, body, expand)
     }
+    ast.ListSpread(elements, tail, _) ->
+      expression(list.fold(elements, rules, expression), tail)
     ast.ListExpression(elements, _) | ast.TupleExpression(elements, _) ->
       list.fold(elements, rules, expression)
     ast.Call(callee, arguments, span) ->

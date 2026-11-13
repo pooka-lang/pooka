@@ -719,6 +719,8 @@ fn expression(value: ast.Expression, scope: Scope) -> List(Event) {
     | ast.SelfExpression(..)
     | ast.SuperExpression(..)
     | ast.Continue(..) -> []
+    ast.ListSpread(elements, tail, _) ->
+      expressions(list.append(elements, [tail]), scope)
     ast.ListExpression(elements:, ..) | ast.TupleExpression(elements:, ..) ->
       expressions(elements, scope)
     ast.BlockExpression(value) -> block(value, scope)

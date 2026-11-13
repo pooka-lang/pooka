@@ -1,0 +1,17 @@
+---
+version: 2.0.2
+title: types: list spread requires a compatible tail
+---
+error: type mismatch
+  ╭─ src/main.pooka:2:16
+  │
+2 │ main() { [1, ..False] }
+  │          ──────┬─────┬
+  │                │     ╰─ found Bool
+  │                ╰─ expected List(Int)
+  ╰─
+
+A spread tail must be a list with compatible elements.
+
+Found 1 error.
+

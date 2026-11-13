@@ -295,6 +295,8 @@ fn expression(
         False -> normal(incoming)
       }
     ast.BlockExpression(value) -> block(value, incoming, context)
+    ast.ListSpread(elements, tail, _) ->
+      expressions(list.append(elements, [tail]), incoming, context)
     ast.ListExpression(elements:, ..) | ast.TupleExpression(elements:, ..) ->
       expressions(elements, incoming, context)
     ast.Call(callee:, arguments:, span:) ->
