@@ -17,10 +17,11 @@
 snapshot({graph,Root,Packages},Mode) ->
     try
         Projects = maps:from_list([{element(3,P),P} || P <- Packages]),
+        Applications = maps:from_list([{application_name(P),chars(element(2,P))} || P <- Packages]),
         Toolchain = toolchain(),
         InputSets = maps:map(fun(_,P) ->
             IsRoot = element(3,P) =:= element(3,Root),
-            Paths = inputs(P,IsRoot andalso Mode =:= <<"dev">>),
+            Paths = inputs(P,IsRoot andalso Mode =:= <<"dev">>,Applications),
             Paths
         end,Projects),
         Own = maps:map(fun(Name,P) -> digest({P,Mode,Toolchain,maps:get(Name,InputSets)}) end,Projects),
@@ -49,7 +50,7 @@ foreign_input(P,Path) ->
 
 %% Collect relevant package configuration and source inputs, including pooka.toml.
 %% Generated output is not a source substitute.
-inputs(P,Tests) ->
+inputs(P,Tests,Applications) ->
     Root = chars(element(2,P)),
     Directories = ["src","ffi","include","priv"] ++ case Tests of true -> ["test"]; false -> [] end,
     Config = ["pooka.toml","gleam.toml","rebar.config","rebar.config.script","mix.exs","manifest.toml"],
@@ -60,7 +61,7 @@ inputs(P,Tests) ->
     
     {ExtraDirs,Defines} = case element(8,P) of {beam,_,_} -> include_options(Root); pooka -> {[],[]} end,
     IncludeDirs = [filename:join(Root,"include"),filename:join(Root,"src")] ++ ExtraDirs,
-    Includes = lists:append([erlang_includes(chars(Path),IncludeDirs,Defines) || {Path,_,_} <- Files,
+    Includes = lists:append([erlang_includes(chars(Path),IncludeDirs,Defines,Applications) || {Path,_,_} <- Files,
                             filename:extension(chars(Path)) =:= ".erl"]),
     lists:usort(Files ++ Includes).
 
@@ -74,12 +75,103 @@ include_options(Root) ->
         _ -> erlang:error(invalid_rebar_config)
     end.
 
-erlang_includes(Path,Dirs,Defines) ->
+%% A dependency header may not have a compiled application directory yet.
+%% Resolve that case from the source graph instead of forgetting the snapshot.
+%% Ordinary preprocessing remains authoritative when it can see every header.
+%%
+%% ```erlang
+%% -include_lib("shared_headers/include/constants.hrl").
+%% ```
+erlang_includes(Path,Dirs,Defines,Applications) ->
     {ok,Forms} = epp:parse_file(Path,Dirs,Defines),
-    
-    
-    false = lists:any(fun(F) -> element(1,F) =:= error end,Forms),
-    lists:append([tree(File) || {attribute,_,file,{File,_}} <- Forms]).
+    Errors = [Reason || {error,Reason} <- Forms],
+    case Errors of
+        [] -> lists:append([tree(File) || {attribute,_,file,{File,_}} <- Forms]);
+        _ ->
+            Missing = [File || {_,epp,{include,lib,File}} <- Errors],
+            true = Missing =/= [],
+            true = lists:all(fun(File) -> tracked_library(File,Applications) end,Missing),
+            true = lists:all(fun recoverable_include_error/1,Errors),
+            %% Missing definitions can hide conditional includes from epp. Walk
+            %% every literal include, including inactive branches, rather than
+            %% trusting the partial file attributes. Dynamic include names stay
+            %% uncacheable; compilation still decides whether the code is valid.
+            Paths = literal_includes(Path,Dirs,Applications,sets:new()),
+            lists:append([tree(File) || File <- sets:to_list(Paths)])
+    end.
+
+application_name(P) ->
+    case element(8,P) of
+        {beam,App,_} -> chars(App);
+        pooka -> chars(element(3,P))
+    end.
+
+tracked_library(File,Applications) ->
+    case filename:split(File) of
+        [App|_] -> maps:is_key(App,Applications);
+        _ -> false
+    end.
+
+recoverable_include_error({_,epp,{include,lib,_}}) -> true;
+recoverable_include_error({_,epp,{undefined,_,_}}) -> true;
+recoverable_include_error(_) -> false.
+
+%% A complete lexical walk sees headers inside conditionals even when an
+%% unavailable dependency macro prevents epp from entering that branch. Unknown
+%% paths disable caching rather than making an incomplete promise.
+%%
+%% ```erlang
+%% -ifdef(FROM_DEPENDENCY).
+%% -include("../extra/local.hrl").
+%% -endif.
+%% ```
+literal_includes(Path0,Dirs,Applications,Seen) ->
+    Path = normalise(Path0),
+    case sets:is_element(Path,Seen) of
+        true -> Seen;
+        false ->
+            {ok,Bytes} = file:read_file(Path),
+            {ok,Tokens,_} = erl_scan:string(unicode:characters_to_list(Bytes)),
+            Includes = include_directives(Tokens),
+            lists:foldl(fun({Kind,File},Acc) ->
+                Header = include_path(Kind,File,Path,Dirs,Applications),
+                literal_includes(Header,Dirs,Applications,Acc)
+            end,sets:add_element(Path,Seen),Includes)
+    end.
+
+include_directives([{'-',_},{atom,_,Kind},{'(',_},{string,_,File},{')',_},{dot,_}|Rest])
+  when Kind =:= include; Kind =:= include_lib ->
+    [{Kind,File}|include_directives(Rest)];
+include_directives([{'-',_},{atom,_,Kind}|_])
+  when Kind =:= include; Kind =:= include_lib ->
+    erlang:error(dynamic_include);
+include_directives([_|Rest]) -> include_directives(Rest);
+include_directives([]) -> [].
+
+include_path(Kind,File,Source,Dirs,Applications) ->
+    case Kind of
+        include -> find_header(File,[filename:dirname(Source)|Dirs]);
+        include_lib ->
+            [App|Tail] = filename:split(File),
+            case maps:find(App,Applications) of
+                {ok,Root} -> find_header(filename:join(Tail),[Root]);
+                error ->
+                    %% Runtime library headers are outside the graph, but their
+                    %% actual contents still become explicit snapshot inputs.
+                    case code:lib_dir(list_to_atom(App)) of
+                        {error,_} -> erlang:error(unknown_include_library);
+                        Root -> find_header(filename:join(Tail),[Root])
+                    end
+            end
+    end.
+
+find_header(File,[Directory|Rest]) ->
+    Path = normalise(filename:absname(File,Directory)),
+    case filelib:is_regular(Path) of
+        true -> Path;
+        false -> find_header(File,Rest)
+    end;
+find_header(_,[]) -> erlang:error(missing_include).
 
 
 
