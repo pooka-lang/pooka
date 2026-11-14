@@ -538,3 +538,93 @@ pub fn native_batch_failures_keep_the_source_diagnostic_test() {
   assert string.contains(report.stderr, "zz_broken.erl")
   assert string.contains(report.stderr, "syntax error")
 }
+
+pub fn published_resources_use_the_application_name_from_package_metadata_test() {
+  use directory <- support.with_directory("hex_published_resource_identity")
+  let _ =
+    prepare(directory, "fixture", "published_fixture", "make", [
+      #(
+        "src/fixture.erl",
+        "-module(fixture).\n-export([answer/0]).\nanswer() -> 42.\n",
+      ),
+      #(
+        "ebin/published_fixture.app",
+        "{application,published_fixture,[{vsn,\"1.0.0\"},{description,\"Published resource\"},{modules,[old_module]},{applications,[kernel,stdlib]}]}.\n",
+      ),
+    ])
+  let report = support.cli_main(["run"], command.plain(directory <> "/app"))
+  assert report.status == 0
+  assert report.stdout == "42\n"
+  let assert Ok(resource) =
+    simplifile.read(
+      directory
+      <> "/app/build/dev/erlang/published_fixture/ebin/published_fixture.app",
+    )
+  assert string.contains(resource, "Published resource")
+  assert string.contains(resource, "{modules,[fixture]}")
+  assert !string.contains(resource, "old_module")
+}
+
+pub fn generated_resources_take_precedence_over_published_resources_test() {
+  use directory <- support.with_directory("hex_generated_resource_first")
+  let _ =
+    prepare(directory, "fixture", "fixture", "gleam", [
+      #("gleam.toml", "name = \"fixture\"\nversion = \"1.0.0\"\n"),
+      #("src/fixture.gleam", "pub fn answer() { 42 }\n"),
+      #("ebin/fixture.app", "not_an_application.\n"),
+    ])
+  let report = support.cli_main(["run"], command.plain(directory <> "/app"))
+  assert report.status == 0
+  assert report.stdout == "42\n"
+}
+
+fn rejected_published_resource(
+  name: String,
+  files: List(#(String, String)),
+  message: String,
+) {
+  use directory <- support.with_directory(name)
+  let _ =
+    prepare(directory, "fixture", "fixture", "make", [
+      #(
+        "src/fixture.erl",
+        "-module(fixture).\n-export([answer/0]).\nanswer() -> 42.\n",
+      ),
+      ..files
+    ])
+  let report = support.cli_main(["build"], command.plain(directory <> "/app"))
+  assert report.status == 1
+  assert string.contains(report.stderr, message)
+}
+
+pub fn missing_published_resources_have_a_clear_error_test() {
+  rejected_published_resource(
+    "hex_published_missing",
+    [],
+    "Native package application resource is missing",
+  )
+}
+
+pub fn malformed_published_resources_keep_their_own_diagnostic_test() {
+  rejected_published_resource(
+    "hex_published_malformed",
+    [#("ebin/fixture.app", "{not a valid term\n")],
+    "Invalid native application resource",
+  )
+}
+
+pub fn published_resources_cannot_declare_another_application_test() {
+  rejected_published_resource(
+    "hex_published_wrong_identity",
+    [#("ebin/fixture.app", "{application,other,[{vsn,\"1.0.0\"}]}.\n")],
+    "declares other; expected fixture",
+  )
+}
+
+pub fn published_resource_properties_must_be_a_list_test() {
+  rejected_published_resource(
+    "hex_published_bad_properties",
+    [#("ebin/fixture.app", "{application,fixture,not_a_list}.\n")],
+    "Invalid native application resource",
+  )
+}
