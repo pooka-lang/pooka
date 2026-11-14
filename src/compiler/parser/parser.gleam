@@ -303,7 +303,9 @@ fn declaration(
       ))
       Ok(#(ast.ExternalDeclaration(external), parser))
     }
-    token.Name("enum"), token.UpperName(_) -> {
+    token.Name("enum"), token.UpperName(_)
+    | token.Name("enum"), token.NilLiteral
+    -> {
       use #(enum, parser) <- result.try(parse_declaration.parse_enum(
         state.skip(parser),
         start,

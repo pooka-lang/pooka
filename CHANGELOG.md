@@ -11,6 +11,7 @@
 ### Bug fixes
 
 - Read published native application resources when no `.app.src` exists, preserving metadata and diagnosing invalid resources clearly (#17).
+- Reject classes, actors, interfaces and enums that reuse built-in type names, pointing to the declaration before misleading type errors appear (#13).
 
 - Align command activity labels with dependency downloads and format download durations using the same readable units as build times.
 

@@ -1,0 +1,23 @@
+---
+version: 2.0.2
+title: analysis: built-in type name collision
+---
+Source:
+module main
+class Pid {}
+make() -> Pid { Pid() }
+main() { echo make() }
+
+---
+error: built-in type name redeclared
+  ╭─ src/main.pooka:2:7
+  │
+2 │ class Pid {}
+  │       ─┬─
+  │        ╰─ `Pid` already names a built-in type
+  ╰─
+
+help: Choose a different declaration name. The built-in type `Pid` can be used directly in annotations, without declaring or importing it.
+
+Found 1 error.
+

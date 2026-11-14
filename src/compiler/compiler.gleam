@@ -10,6 +10,7 @@
 
 // SPDX-License-Identifier: Apache-2.0
 
+import compiler/analysis/builtin_type
 import compiler/analysis/context
 import compiler/analysis/duplicate
 import compiler/analysis/import_binding
@@ -110,6 +111,7 @@ fn check_source_mode(
         [], [] ->
           list.flatten([
             duplicate.check(parsed.module, path),
+            builtin_type.check(parsed.module, path),
             context.check(parsed.module, path),
             import_binding.check(parsed.module, path),
             inheritance.check(parsed.module, path),
