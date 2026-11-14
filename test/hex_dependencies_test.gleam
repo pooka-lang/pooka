@@ -9,6 +9,7 @@ import builder/build
 import cli/command
 import gleam/bit_array
 import gleam/dict
+import gleam/int
 import gleam/json
 import gleam/list
 import gleam/order
@@ -384,4 +385,127 @@ pub fn cached_native_dependency_headers_preserve_unchanged_build_reuse_test() {
   assert changed.compiled_foreign == []
   assert support.cli_main(["run"], command.plain(directory <> "/app")).stdout
     == "42\n"
+}
+
+pub fn native_batches_keep_options_and_compile_modules_beyond_the_first_batch_test() {
+  use directory <- support.with_directory("hex native batches")
+  let extras =
+    list.index_map(list.repeat(Nil, 64), fn(_, n) {
+      let name = "batch_extra_" <> int.to_string(n)
+      #(
+        "src/" <> name <> ".erl",
+        "-module("
+          <> name
+          <> ").\n-include(\"offset.hrl\").\n-export([answer/0]).\nanswer() -> ?BASE + ?OFFSET.\n",
+      )
+    })
+  let _ =
+    prepare(
+      directory,
+      "fixture",
+      "fixture",
+      "rebar3",
+      list.append(
+        [
+          #(
+            "rebar.config",
+            "{erl_opts,[{i,\"extra_headers\"},{d,'BASE',20}]}.\n",
+          ),
+          #("extra_headers/offset.hrl", "-define(OFFSET, 22).\n"),
+          #(
+            "src/fixture.erl",
+            "-module(fixture).\n-export([answer/0]).\nanswer() -> batch_extra_63:answer().\n",
+          ),
+          #(
+            "src/fixture.app.src",
+            "{application,fixture,[{vsn,\"1.0.0\"},{modules,[]},{applications,[kernel,stdlib]}]}.\n",
+          ),
+        ],
+        extras,
+      ),
+    )
+  let assert Ok(built) = build.build(directory <> "/app")
+  assert list.length(built.compiled_foreign) == 65
+  assert support.cli_main(["run"], command.plain(directory <> "/app")).stdout
+    == "42\n"
+}
+
+pub fn native_batches_keep_first_files_available_as_parse_transforms_test() {
+  use directory <- support.with_directory("hex_native_first_transform")
+  let fillers =
+    list.index_map(list.repeat(Nil, 33), fn(_, n) {
+      let name = "a_filler_" <> int.to_string(n)
+      #(
+        "src/" <> name <> ".erl",
+        "-module(" <> name <> ").\n-export([answer/0]).\nanswer() -> 1.\n",
+      )
+    })
+  let _ =
+    prepare(
+      directory,
+      "fixture",
+      "fixture",
+      "rebar3",
+      list.append(
+        [
+          #(
+            "rebar.config",
+            "{erl_first_files,[\"src/z_fixture_transform.erl\"]}.\n",
+          ),
+          #(
+            "src/z_fixture_transform.erl",
+            "-module(z_fixture_transform).\n-export([parse_transform/2]).\nparse_transform(Forms, _) -> lists:map(fun rewrite/1, Forms).\nrewrite({function,L,answer,0,_}) -> {function,L,answer,0,[{clause,L,[],[],[{integer,L,42}]}]};\nrewrite(Form) -> Form.\n",
+          ),
+          #(
+            "src/fixture.erl",
+            "-module(fixture).\n-compile({parse_transform,z_fixture_transform}).\n-export([answer/0]).\nanswer() -> 1.\n",
+          ),
+          #(
+            "src/fixture.app.src",
+            "{application,fixture,[{vsn,\"1.0.0\"},{modules,[]},{applications,[kernel,stdlib]}]}.\n",
+          ),
+        ],
+        fillers,
+      ),
+    )
+  let report = support.cli_main(["run"], command.plain(directory <> "/app"))
+  assert report.status == 0
+  assert report.stdout == "42\n"
+}
+
+pub fn native_batch_failures_keep_the_source_diagnostic_test() {
+  use directory <- support.with_directory("hex_native_batch_error")
+  let fillers =
+    list.index_map(list.repeat(Nil, 33), fn(_, n) {
+      let name = "a_filler_" <> int.to_string(n)
+      #(
+        "src/" <> name <> ".erl",
+        "-module(" <> name <> ").\n-export([answer/0]).\nanswer() -> 1.\n",
+      )
+    })
+  let _ =
+    prepare(
+      directory,
+      "fixture",
+      "fixture",
+      "rebar3",
+      list.append(
+        [
+          #(
+            "src/fixture.erl",
+            "-module(fixture).\n-export([answer/0]).\nanswer() -> 42.\n",
+          ),
+          #("src/zz_broken.erl", "-module(zz_broken).\nanswer() -> .\n"),
+          #(
+            "src/fixture.app.src",
+            "{application,fixture,[{vsn,\"1.0.0\"},{modules,[]},{applications,[kernel,stdlib]}]}.\n",
+          ),
+        ],
+        fillers,
+      ),
+    )
+  let report = support.cli_main(["build"], command.plain(directory <> "/app"))
+  assert report.status == 1
+  assert string.contains(report.stderr, "zz_broken.erl")
+  assert string.contains(report.stderr, "syntax error")
 }
