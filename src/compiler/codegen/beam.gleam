@@ -23,6 +23,16 @@ import compiler/codegen/forms.{type Term}
 @external(erlang, "pooka_beam_ffi", "compile")
 pub fn compile(forms: List(Term)) -> Result(BitArray, String)
 
+/// Compile independent artifact jobs with bounded concurrency. Results and
+/// the first failure retain source order, even when workers finish differently.
+/// All active workers finish before the result is returned.
+///
+/// ```text
+/// jobs [A, B, C] completing C, A, B -> results [A, B, C]
+/// ```
+@external(erlang, "pooka_beam_ffi", "compile_jobs")
+pub fn compile_jobs(jobs: List(fn() -> Result(a, e))) -> Result(List(a), e)
+
 /// Render abstract forms as Erlang source for inspection; this does not make .erl
 /// files a required build artifact.
 ///

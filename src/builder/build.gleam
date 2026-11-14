@@ -81,6 +81,18 @@ type Artifact {
   )
 }
 
+/// Keep generation in source order; only independent BEAM work enters workers.
+/// Each job carries its own forms and paths, rather than copying the complete
+/// checked project into every worker.
+type PendingArtifact {
+  PendingArtifact(
+    generated: erlang.Output,
+    abstract: BitArray,
+    path: String,
+    layout: layout.Layout,
+  )
+}
+
 /// Build the current development project and its dependencies through the shared
 /// compilation pipeline.
 ///
@@ -227,7 +239,7 @@ fn compile_project(
     True -> inferred.modules
     False -> production
   }
-  use artifacts <- result.try(
+  use pending <- result.try(
     list.try_map(targets, fn(module) {
       use file <- result.try(
         list.find(checked.files, fn(file) { file.path == module.path })
@@ -284,37 +296,52 @@ fn compile_project(
           ),
         )
       let abstract = beam.abstract_forms(generated.forms)
-      use #(binary, compiled) <- result.try(
-        compile_module(
-          layout.erlang(
-            checked.project.root,
-            package.module_owner(module.identity, checked.project.name).0,
-            mode,
-          ),
-          generated.name,
-          generated.forms,
-          abstract,
-          reuse,
-        )
-        |> result.map_error(fn(detail) { failure(checked, module.path, detail) }),
-      )
-      Ok(Artifact(
-        generated.name,
+      Ok(PendingArtifact(
+        generated,
         abstract,
-        binary,
-        compiled,
-        list.map(generated.tests, fn(test_case) {
-          Test(
-            generated.name,
-            test_case.name,
-            test_case.description,
-            module.path,
-            test_case.span,
-            test_case.skipped,
-          )
-        }),
+        module.path,
+        layout.erlang(
+          checked.project.root,
+          package.module_owner(module.identity, checked.project.name).0,
+          mode,
+        ),
       ))
     }),
+  )
+  use artifacts <- result.try(
+    pending
+    |> list.map(fn(job) {
+      fn() {
+        compile_module(
+          job.layout,
+          job.generated.name,
+          job.generated.forms,
+          job.abstract,
+          reuse,
+        )
+        |> result.map(fn(pair) {
+          Artifact(
+            job.generated.name,
+            job.abstract,
+            pair.0,
+            pair.1,
+            list.map(job.generated.tests, fn(test_case) {
+              Test(
+                job.generated.name,
+                test_case.name,
+                test_case.description,
+                job.path,
+                test_case.span,
+                test_case.skipped,
+              )
+            }),
+          )
+        })
+        |> result.map_error(fn(detail) { #(job.path, detail) })
+      }
+    })
+    |> beam.compile_jobs
+    |> result.map_error(fn(error) { failure(checked, error.0, error.1) }),
   )
   let owners = list.append(checked.packages, [checked.project])
   use native_library <- result.try(

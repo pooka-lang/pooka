@@ -228,7 +228,7 @@ toolchain() ->
     
     
     Env = lists:sort([E || E <- os:getenv(),not volatile_environment(E)]),
-    Tools = [{P,executable(P)} || P <- ["gleam","erlc","elixirc","lfec"]],
+    Tools = [{P,executable(P)} || P <- ["gleam","erl","erlc","elixirc","lfec"]],
     digest({erlang:system_info(otp_release),erlang:system_info(version),
             compile:module_info(md5),Beams,Env,Tools}).
 

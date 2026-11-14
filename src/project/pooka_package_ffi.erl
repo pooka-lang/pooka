@@ -158,20 +158,21 @@ package_fail(Reason) -> throw({package_error,unicode:characters_to_binary(Reason
 git(Directory,Arguments) -> run_tool("git",Directory,Arguments).
 %% Run an external package tool with explicit arguments and recover its status/output for
 %% project diagnostics.
-run_tool(Program,Directory,Arguments) ->
+run_tool(Program,Directory,Arguments) -> run_tool(Program,Directory,Arguments,60000).
+run_tool(Program,Directory,Arguments,Timeout) ->
     case os:find_executable(Program) of
         false -> package_fail(["Required dependency tool is missing: ",Program]);
         Executable ->
             Port = open_port({spawn_executable,Executable},[binary,exit_status,stderr_to_stdout,
                 {cd,Directory},{env,[{"GIT_TERMINAL_PROMPT","0"}]},{args,Arguments}]),
-            tool_output(Port,[],Program)
+            tool_output(Port,[],Program,Timeout)
     end.
-tool_output(Port,Parts,Program) ->
+tool_output(Port,Parts,Program,Timeout) ->
     receive
-        {Port,{data,Data}} -> tool_output(Port,[Data|Parts],Program);
+        {Port,{data,Data}} -> tool_output(Port,[Data|Parts],Program,Timeout);
         {Port,{exit_status,0}} -> iolist_to_binary(lists:reverse(Parts));
         {Port,{exit_status,Status}} -> package_fail(io_lib:format("~ts failed (status ~p): ~ts",[Program,Status,iolist_to_binary(lists:reverse(Parts))]))
-    after 60000 -> port_close(Port),package_fail([Program," timed out"]) end.
+    after Timeout -> port_close(Port),package_fail([Program," timed out"]) end.
 
 http_get(URLBinary) ->
     URL=unicode:characters_to_list(URLBinary),
@@ -334,13 +335,14 @@ native_build(RootBinary,LibraryBinary,NameBinary,AppBinary,VersionBinary,ToolBin
                 case lists:any(fun(Key) -> proplists:is_defined(Key,Config) end,[plugins,project_plugins,pre_hooks,post_hooks,provider_hooks,overrides]) of
                     true -> package_fail("Native package requires unsupported rebar hooks/plugins/overrides"); false -> ok
                 end,
-                Options = lists:append([erlc_option(Option,Root) || Option <- proplists:get_value(erl_opts,Config,[])]),
+                Options = [{outdir,Ebin},{i,filename:join(Root,"include")},
+                    {i,filename:join(Root,"src")}] ++
+                    [native_option(Option,Root) || Option <- proplists:get_value(erl_opts,Config,[])],
                 Paths = filelib:wildcard(filename:join([Library,"*","ebin"])),
                 CodeArgs = lists:append([["-pa",Path] || Path <- Paths]),
                 First = [filename:join(Root,F) || F <- proplists:get_value(erl_first_files,Config,[])],
-                Ordered = First ++ [F || F <- Files, not lists:member(F,First)],
-                Arguments = CodeArgs ++ ["-I",filename:join(Root,"include"),"-I",filename:join(Root,"src"),"-o",Ebin] ++ Options,
-                compile_erlang_batches(Root,Arguments,Ordered)
+                Remaining = [F || F <- Files, not lists:member(F,First)],
+                compile_erlang_package(Root,Library,App,CodeArgs,First,Remaining,Options)
         end,
         Beams = [{unicode:characters_to_binary(filename:basename(File,".beam")),read_required(File)} || File <- lists:sort(filelib:wildcard(filename:join(Ebin,"*.beam")))],
         case Beams of [] -> package_fail("Native package produced no BEAM modules"); _ -> ok end,
@@ -358,39 +360,30 @@ native_build(RootBinary,LibraryBinary,NameBinary,AppBinary,VersionBinary,ToolBin
         {ok,{Beams,Resource}}
     catch throw:{package_error,Error} -> {error,Error};
           Class:Reason -> {error,unicode:characters_to_binary(io_lib:format("Native build failed: ~tp:~tp",[Class,Reason]))} end.
-%% Each erlc invocation pays for a fresh VM. Keep ordinary files together,
-%% retaining erl_first_files order: erlc compiles its arguments sequentially,
-%% and earlier parse transforms are available through the output code path.
-%% Bound both file count and argument size so large packages and long Windows
-%% paths do not become one oversized command.
+%% Keep the native compiler isolated, but let independent modules use a few
+%% schedulers inside that one VM. A binary plan keeps source lists and options
+%% off the command line, including long paths and package-specific macros.
 %%
 %% ```text
-%% 70 ordered files -> batches of 32, 32 and 6, rather than 70 compiler VMs
+%% first files -> available parse transforms -> bounded parallel source queue
 %% ```
-compile_erlang_batches(Root,Arguments,Files) ->
-    Budget = 16000 - lists:sum([argument_size(A) || A <- Arguments]),
-    compile_erlang_batches(Root,Arguments,Files,[],0,0,Budget).
+compile_erlang_package(Root,Library,App,CodeArgs,First,Remaining,Options) ->
+    lists:foreach(fun(Module) ->
+        {Module,Beam,_} = code:get_object_code(Module),
+        File = filename:join(Library,atom_to_list(Module) ++ ".beam"),
+        case file:read_file(File) of {ok,Beam} -> ok; _ -> ok = file:write_file(File,Beam) end
+    end,[pooka_native_compile_ffi,pooka_beam_ffi]),
+    Plan = filename:join(Library,atom_to_list(App) ++ ".compile-plan"),
+    ok = file:write_file(Plan,term_to_binary({native_compile_v1,First,Remaining,Options})),
+    %% Retain the former per-batch timeout allowance for unusually large packages.
+    Timeout = 60000 * max(1,(length(First)+length(Remaining)+31) div 32),
+    _ = run_tool("erl",Root,CodeArgs ++ ["-pa",Library,"-noshell","-s",
+        "pooka_native_compile_ffi","main","-extra",Plan],Timeout),ok.
 
-compile_erlang_batches(_,_,[],[],_,_,_) -> ok;
-compile_erlang_batches(Root,Arguments,[],Batch,_,_,_) ->
-    _ = run_tool("erlc",Root,Arguments ++ lists:reverse(Batch)),ok;
-compile_erlang_batches(Root,Arguments,[File|Rest]=Files,Batch,Count,Size,Budget) ->
-    Cost = argument_size(File),
-    case Batch =/= [] andalso (Count >= 32 orelse Size + Cost > Budget) of
-        true ->
-            _ = run_tool("erlc",Root,Arguments ++ lists:reverse(Batch)),
-            compile_erlang_batches(Root,Arguments,Files,[],0,0,Budget);
-        false ->
-            compile_erlang_batches(Root,Arguments,Rest,[File|Batch],Count+1,Size+Cost,Budget)
-    end.
-
-argument_size(Argument) -> byte_size(unicode:characters_to_binary(Argument)) + 3.
+native_option({i,Path},Root) -> {i,filename:absname(Path,Root)};
+native_option(Option,_) -> Option.
 
 read_required(Path) -> {ok,Bytes} = file:read_file(Path),Bytes.
-erlc_option({i,Path},Root) -> ["-I",filename:absname(Path,Root)];
-erlc_option({d,Name},_) -> ["-D" ++ atom_to_list(Name)];
-erlc_option({d,Name,Value},_) -> [lists:flatten(io_lib:format("-D~s=~tp",[Name,Value]))];
-erlc_option(Option,_) -> [lists:flatten(io_lib:format("+~tp",[Option]))].
 remove_generated_erlang(Directory) ->
     lists:foreach(fun(File) -> ok = file:delete(File) end,filelib:fold_files(Directory,".*\\.erl$",true,fun(F,A) -> [F|A] end,[])).
 

@@ -11,7 +11,7 @@
 %%% ```
 
 -module(pooka_beam_ffi).
--export([compile/1, pretty/1, runtime_binary/0, runtime_binary_for/1, execute/4, execute_inherited/4, start_test_vm/1, stop_test_vm/1, execute_tests/3, abstract_forms/1, build_fingerprint/0, resource/1, valid_module/2,
+-export([compile/1, compile_jobs/1, pretty/1, runtime_binary/0, runtime_binary_for/1, execute/4, execute_inherited/4, start_test_vm/1, stop_test_vm/1, execute_tests/3, abstract_forms/1, build_fingerprint/0, resource/1, valid_module/2,
          compile_foreign_erlang/1, run_foreign_compiler/3, discover_elixir_code_paths/0]).
 %% Translate the small Gleam forms.Term algebra into ordinary Erlang atoms, numbers, tuples
 %% and lists before compilation.
@@ -39,6 +39,58 @@ compile(Forms) ->
         {ok, _, Beam, _Warnings} -> {ok, Beam};
         {error, Errors, Warnings} -> {error, format({Errors, Warnings})}
     end.
+%% A few independent modules can share the available schedulers. Keep the
+%% window small to bound compiler heaps, and gather every active worker before
+%% returning or raising. Private references leave the caller's mailbox alone.
+%%
+%% ```text
+%% A fails slowly, B fails quickly -> report A, after both workers finish
+%% ```
+compile_jobs([]) -> {ok,[]};
+compile_jobs([Job]) ->
+    case Job() of {ok,Value} -> {ok,[Value]}; {error,_}=Error -> Error end;
+compile_jobs(Jobs) ->
+    Limit = max(1,min(4,erlang:system_info(schedulers_online))),
+    Ref = make_ref(),
+    Indexed = lists:zip(lists:seq(1,length(Jobs)),Jobs),
+    {Waiting,Active} = start_compile_jobs(Indexed,Limit,Ref,#{}),
+    Results = collect_compile_jobs(Waiting,Active,Ref,#{},false,Limit),
+    compile_job_results([Result || {_,Result} <- lists:sort(maps:to_list(Results))],[]).
+
+start_compile_jobs([{Index,Job}|Rest],Slots,Ref,Active) when Slots > 0 ->
+    Parent = self(),
+    {Pid,Monitor} = spawn_monitor(fun() ->
+        Result = try Job() catch C:R:S -> {compile_exception,C,R,S} end,
+        Parent ! {Ref,self(),Result}
+    end),
+    start_compile_jobs(Rest,Slots-1,Ref,maps:put(Pid,{Monitor,Index},Active));
+start_compile_jobs(Waiting,_,_,Active) -> {Waiting,Active}.
+
+collect_compile_jobs(_,Active,_,Results,_,_) when map_size(Active) =:= 0 -> Results;
+collect_compile_jobs(Waiting,Active,Ref,Results,Failed,Limit) ->
+    {Pid,Result} = receive
+        {Ref,Worker,Value} when is_map_key(Worker,Active) ->
+            {Monitor,_} = maps:get(Worker,Active),
+            erlang:demonitor(Monitor,[flush]),{Worker,Value};
+        {'DOWN',Monitor,process,Worker,Reason} when is_map_key(Worker,Active) ->
+            {Monitor,_} = maps:get(Worker,Active),
+            {Worker,{compile_exception,exit,Reason,[]}}
+    end,
+    {_,Index} = maps:get(Pid,Active),
+    Remaining = maps:remove(Pid,Active),
+    Stop = Failed orelse case Result of {ok,_} -> false; _ -> true end,
+    {Next,Running} = case Stop of
+        true -> {Waiting,Remaining};
+        false -> start_compile_jobs(Waiting,Limit-map_size(Remaining),Ref,Remaining)
+    end,
+    collect_compile_jobs(Next,Running,Ref,maps:put(Index,Result,Results),Stop,Limit).
+
+compile_job_results([],Values) -> {ok,lists:reverse(Values)};
+compile_job_results([{ok,Value}|Rest],Values) -> compile_job_results(Rest,[Value|Values]);
+compile_job_results([{error,_}=Error|_],_) -> Error;
+compile_job_results([{compile_exception,Class,Reason,Stack}|_],_) ->
+    erlang:raise(Class,Reason,Stack).
+
 pretty(Forms) -> unicode:characters_to_binary([erl_pp:form(decode(F)) || F <- Forms]).
 runtime_binary() ->
     case code:get_object_code(pooka_runtime_ffi) of
