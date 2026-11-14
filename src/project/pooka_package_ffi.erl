@@ -349,7 +349,9 @@ native_build(RootBinary,LibraryBinary,NameBinary,AppBinary,VersionBinary,ToolBin
         AppSources = filelib:wildcard(filename:join(Root,"src/*.app.src")),
         Properties = case AppSources of
             [AppSource] -> case file:consult(AppSource) of {ok,[{application,App,Props}]} -> Props; Other -> package_fail(io_lib:format("Invalid application resource: ~tp",[Other])) end;
-            [] -> case file:consult(filename:join(Ebin,atom_to_list(App) ++ ".app")) of {ok,[{application,App,Props}]} -> Props; _ -> package_fail("Native package application resource is missing") end;
+            %% Published native packages may ship a finished application resource.
+            %% Prefer generated output, then the source package resource.
+            [] -> published_resource(App,[Ebin,filename:join(Root,"ebin")]);
             _ -> package_fail("Native package declares multiple OTP applications")
         end,
         Names = [binary_to_atom(Module,utf8) || {Module,_} <- Beams],
@@ -382,6 +384,24 @@ compile_erlang_package(Root,Library,App,CodeArgs,First,Remaining,Options) ->
 
 native_option({i,Path},Root) -> {i,filename:absname(Path,Root)};
 native_option(Option,_) -> Option.
+
+%% A generated application resource gets the first chair; a published one
+%% fills it only when the generated file is absent. A malformed resource must
+%% keep its own diagnostic rather than disappearing into the missing-file case.
+%%
+%% ```erlang
+%% {application, sample, [{vsn,"1.0.0"},{modules,[]}]}.
+%% ```
+published_resource(_,[]) -> package_fail("Native package application resource is missing");
+published_resource(App,[Directory|Rest]) ->
+    Path = filename:join(Directory,atom_to_list(App) ++ ".app"),
+    case file:consult(Path) of
+        {ok,[{application,App,Props}]} when is_list(Props) -> Props;
+        {error,enoent} -> published_resource(App,Rest);
+        {ok,[{application,Other,_}]} when Other =/= App ->
+            package_fail(io_lib:format("Application resource ~ts declares ~tp; expected ~tp",[Path,Other,App]));
+        Other -> package_fail(io_lib:format("Invalid native application resource ~ts: ~tp",[Path,Other]))
+    end.
 
 read_required(Path) -> {ok,Bytes} = file:read_file(Path),Bytes.
 remove_generated_erlang(Directory) ->

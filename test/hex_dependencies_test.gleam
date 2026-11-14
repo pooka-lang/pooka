@@ -252,6 +252,35 @@ pub fn cached_hex_erlang_packages_build_offline_with_their_actual_otp_applicatio
   assert support.cli_main(["run"], env).status == 1
 }
 
+// Some native packages describe their application in a Makefile and publish
+// the finished resource rather than an .app.src. Read the published resource in
+// ebin/. Read it from the package, not from the build's own output folder.
+pub fn cached_hex_erlang_mk_packages_use_their_published_application_resource_test() {
+  use directory <- support.with_directory("hex_native_erlang_mk")
+  let _selected =
+    prepare(directory, "fixture", "fixture", "make", [
+      #("Makefile", "PROJECT = fixture\n"),
+      #(
+        "src/fixture.erl",
+        "-module(fixture).\n-export([answer/0]).\nanswer() -> 42.\n",
+      ),
+      #(
+        "ebin/fixture.app",
+        "{application,fixture,[{description,\"Made by erlang.mk\"},{vsn,\"1.0.0\"},{modules,[]},{registered,[]},{applications,[kernel,stdlib]}]}.\n",
+      ),
+    ])
+  let env = command.plain(directory <> "/app")
+  let result = support.cli_main(["run"], env)
+  assert result.status == 0
+  assert result.stdout == "42\n"
+  let assert Ok(resource) =
+    simplifile.read(
+      directory <> "/app/build/dev/erlang/fixture/ebin/fixture.app",
+    )
+  assert string.contains(resource, "Made by erlang.mk")
+  assert string.contains(resource, "{modules,[fixture]}")
+}
+
 pub fn cached_hex_gleam_packages_compile_without_network_or_source_mutation_test() {
   use directory <- support.with_directory("hex_native_gleam")
   let selected =
