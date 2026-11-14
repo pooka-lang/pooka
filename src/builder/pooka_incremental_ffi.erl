@@ -381,7 +381,7 @@ valid_modules(_) -> false.
 %% external resources outside the library retain their ordinary absolute paths.
 %%
 %% ```text
-%% old-stage/headers/include/value.hrl -> {staged,"headers/include/value.hrl"}
+%% old-stage/headers/include/value.hrl -> {staged,["headers","include","value.hrl"]}
 %% validate using new-stage/headers/include/value.hrl
 %% ```
 native_inputs(Modules,OriginalLibrary,Library) ->
