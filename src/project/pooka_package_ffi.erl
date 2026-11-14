@@ -339,7 +339,8 @@ native_build(RootBinary,LibraryBinary,NameBinary,AppBinary,VersionBinary,ToolBin
                 CodeArgs = lists:append([["-pa",Path] || Path <- Paths]),
                 First = [filename:join(Root,F) || F <- proplists:get_value(erl_first_files,Config,[])],
                 Ordered = First ++ [F || F <- Files, not lists:member(F,First)],
-                lists:foreach(fun(File) -> run_tool("erlc",Root,CodeArgs ++ ["-I",filename:join(Root,"include"),"-I",filename:join(Root,"src"),"-o",Ebin] ++ Options ++ [File]) end,Ordered)
+                Arguments = CodeArgs ++ ["-I",filename:join(Root,"include"),"-I",filename:join(Root,"src"),"-o",Ebin] ++ Options,
+                compile_erlang_batches(Root,Arguments,Ordered)
         end,
         Beams = [{unicode:characters_to_binary(filename:basename(File,".beam")),read_required(File)} || File <- lists:sort(filelib:wildcard(filename:join(Ebin,"*.beam")))],
         case Beams of [] -> package_fail("Native package produced no BEAM modules"); _ -> ok end,
@@ -357,6 +358,34 @@ native_build(RootBinary,LibraryBinary,NameBinary,AppBinary,VersionBinary,ToolBin
         {ok,{Beams,Resource}}
     catch throw:{package_error,Error} -> {error,Error};
           Class:Reason -> {error,unicode:characters_to_binary(io_lib:format("Native build failed: ~tp:~tp",[Class,Reason]))} end.
+%% Each erlc invocation pays for a fresh VM. Keep ordinary files together,
+%% retaining erl_first_files order: erlc compiles its arguments sequentially,
+%% and earlier parse transforms are available through the output code path.
+%% Bound both file count and argument size so large packages and long Windows
+%% paths do not become one oversized command.
+%%
+%% ```text
+%% 70 ordered files -> batches of 32, 32 and 6, rather than 70 compiler VMs
+%% ```
+compile_erlang_batches(Root,Arguments,Files) ->
+    Budget = 16000 - lists:sum([argument_size(A) || A <- Arguments]),
+    compile_erlang_batches(Root,Arguments,Files,[],0,0,Budget).
+
+compile_erlang_batches(_,_,[],[],_,_,_) -> ok;
+compile_erlang_batches(Root,Arguments,[],Batch,_,_,_) ->
+    _ = run_tool("erlc",Root,Arguments ++ lists:reverse(Batch)),ok;
+compile_erlang_batches(Root,Arguments,[File|Rest]=Files,Batch,Count,Size,Budget) ->
+    Cost = argument_size(File),
+    case Batch =/= [] andalso (Count >= 32 orelse Size + Cost > Budget) of
+        true ->
+            _ = run_tool("erlc",Root,Arguments ++ lists:reverse(Batch)),
+            compile_erlang_batches(Root,Arguments,Files,[],0,0,Budget);
+        false ->
+            compile_erlang_batches(Root,Arguments,Rest,[File|Batch],Count+1,Size+Cost,Budget)
+    end.
+
+argument_size(Argument) -> byte_size(unicode:characters_to_binary(Argument)) + 3.
+
 read_required(Path) -> {ok,Bytes} = file:read_file(Path),Bytes.
 erlc_option({i,Path},Root) -> ["-I",filename:absname(Path,Root)];
 erlc_option({d,Name},_) -> ["-D" ++ atom_to_list(Name)];
