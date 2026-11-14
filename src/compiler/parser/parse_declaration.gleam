@@ -459,11 +459,19 @@ fn type_parameters(parser: Parser) -> Parsed(List(ast.Name)) {
 }
 
 fn upper_name(parser: Parser, what: String) -> Parsed(ast.Name) {
-  use #(#(name, span), parser) <- result.try(state.expect_upper_name(
-    parser,
-    what,
-  ))
-  Ok(#(ast.Name(name:, span:), parser))
+  // Nil is lexed as a literal. Retain its declaration name here so the
+  // structural pass can explain the built-in collision, just like class Pid.
+  case state.current(parser) {
+    Lexeme(token: token.NilLiteral, span:) ->
+      Ok(#(ast.Name(name: "Nil", span:), state.skip(parser)))
+    _ -> {
+      use #(#(name, span), parser) <- result.try(state.expect_upper_name(
+        parser,
+        what,
+      ))
+      Ok(#(ast.Name(name:, span:), parser))
+    }
+  }
 }
 
 fn members(
