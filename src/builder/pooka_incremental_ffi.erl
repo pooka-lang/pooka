@@ -343,11 +343,15 @@ build_foreign(Path,Key,Run) ->
 native(Path,Key,Library,Application,Run) ->
     Destination = filename:join(chars(Library),chars(Application)),
     case load_package(Path,Key) of
-        {ok,{Modules,Resource,Files,Inputs}} ->
+        {ok,{native_inputs_v2,Modules,Resource,Files,Inputs,OriginalLibrary}} ->
             try
                 true = valid_modules(Modules),true = is_binary(Resource),
-                true = Inputs =:= module_inputs(Modules),
+                true = is_list(OriginalLibrary),
+                %% Own headers live in this archive; dependency headers have
+                %% already been staged in graph order. Restore before checking
+                %% either set through the new library directory.
                 restore(Destination,Files),
+                true = Inputs =:= native_inputs(Modules,OriginalLibrary,chars(Library)),
                 {ok,{{Modules,Resource},false}}
             catch _:_ -> build_native(Path,Key,Destination,Run) end;
         _ -> build_native(Path,Key,Destination,Run)
@@ -355,7 +359,10 @@ native(Path,Key,Library,Application,Run) ->
 build_native(Path,Key,Destination,Run) ->
     case Run() of
         {ok,{Modules,Resource}} ->
-            _ = try save_package(Path,Key,{Modules,Resource,archive(Destination,""),module_inputs(Modules)}) catch _:_ -> {error,nil} end,
+            Library = filename:dirname(Destination),
+            _ = try save_package(Path,Key,{native_inputs_v2,Modules,Resource,
+                archive(Destination,""),native_inputs(Modules,Library,Library),Library})
+                catch _:_ -> {error,nil} end,
             {ok,{{Modules,Resource},true}};
         Error -> Error
     end.
@@ -368,12 +375,42 @@ valid_modules(_) -> false.
 
 
 
+%% Debug information remembers the first staging directory, which disappears
+%% after the build. Give those paths a library-relative identity and resolve them
+%% against today's staging directory when validating the cache. Source files and
+%% external resources outside the library retain their ordinary absolute paths.
+%%
+%% ```text
+%% old-stage/headers/include/value.hrl -> {staged,["headers","include","value.hrl"]}
+%% validate using new-stage/headers/include/value.hrl
+%% ```
+native_inputs(Modules,OriginalLibrary,Library) ->
+    Original = filename:split(normalise(OriginalLibrary)),
+    Current = filename:split(normalise(Library)),
+    Paths = lists:usort(lists:append([beam_inputs(Bytes) || {_,Bytes} <- Modules])),
+    Entries = lists:append([tree(relocate_input(Path,Original,Current)) || Path <- Paths]),
+    lists:usort([{native_input_identity(chars(Path),Current),Mode,Hash} || {Path,Mode,Hash} <- Entries]).
+
+relocate_input(Path,Original,Current) ->
+    Parts = filename:split(normalise(Path)),
+    case lists:prefix(Original,Parts) of
+        true -> filename:join(Current ++ lists:nthtail(length(Original),Parts));
+        false -> Path
+    end.
+
+native_input_identity(Path,Library) ->
+    Parts = filename:split(normalise(Path)),
+    case lists:prefix(Library,Parts) of
+        true -> {staged,lists:nthtail(length(Library),Parts)};
+        false -> unicode:characters_to_binary(Path)
+    end.
+
 module_inputs(Modules) ->
     Paths = lists:usort(lists:append([beam_inputs(Bytes) || {_,Bytes} <- Modules])),
     lists:append([tree(Path) || Path <- Paths]).
 beam_inputs(Bytes) ->
     Attributes = case beam_lib:chunks(Bytes,[attributes]) of
-        {ok,{_,[{attributes,Attrs}]}} -> proplists:get_value(external_resource,Attrs,[]);
+        {ok,{_,[{attributes,Attrs}]}} -> external_resources(proplists:get_all_values(external_resource,Attrs));
         _ -> []
     end,
     Includes = case beam_lib:chunks(Bytes,[abstract_code]) of
@@ -382,6 +419,14 @@ beam_inputs(Bytes) ->
         _ -> []
     end,
     [case P of B when is_binary(B) -> chars(B); L -> L end || P <- Attributes ++ Includes].
+
+%% Attribute values may be one character-list path or a list of paths. Keep
+%% each filename whole; flattening a character list would hash single integers.
+external_resources([]) -> [];
+external_resources([First|_]=Path) when is_integer(First) -> [Path];
+external_resources([Head|Tail]) -> external_resources(Head) ++ external_resources(Tail);
+external_resources(Path) when is_binary(Path) -> [chars(Path)];
+external_resources(_) -> erlang:error(invalid_external_resource).
 
 archive(Root,Relative) ->
     Path = filename:join(Root,Relative),
