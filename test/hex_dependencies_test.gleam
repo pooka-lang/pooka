@@ -353,3 +353,35 @@ pub fn published_pooka_packages_build_from_cache_without_runtime_dependencies_te
   let assert Ok(again) = build.build_production(app)
   assert again.reused
 }
+
+pub fn cached_native_dependency_headers_preserve_unchanged_build_reuse_test() {
+  use directory <- support.with_directory("hex_native_header_reuse")
+  let _selected =
+    prepare(directory, "fixture", "header_fixture", "rebar3", [
+      #(
+        "src/fixture.erl",
+        "-module(fixture).\n-include_lib(\"header_fixture/include/constants.hrl\").\n-export([answer/0]).\nanswer() -> ?ANSWER.\n",
+      ),
+      #("include/constants.hrl", "-define(ANSWER, 42).\n"),
+      #(
+        "src/header_fixture.app.src",
+        "{application,header_fixture,[{vsn,\"1.0.0\"},{modules,[]},{applications,[kernel,stdlib]}]}.\n",
+      ),
+    ])
+  let assert Ok(first) = build.build(directory <> "/app")
+  assert !first.reused
+  let assert Ok(second) = build.build(directory <> "/app")
+  assert second.reused
+  assert second.compiled_packages == []
+  assert second.compiled_foreign == []
+  support.write(
+    directory <> "/app/src/extra.pooka",
+    "module extra\nanswer() { 7 }\n",
+  )
+  let assert Ok(changed) = build.build(directory <> "/app")
+  assert !changed.reused
+  assert !list.contains(changed.compiled_packages, "fixture")
+  assert changed.compiled_foreign == []
+  assert support.cli_main(["run"], command.plain(directory <> "/app")).stdout
+    == "42\n"
+}
