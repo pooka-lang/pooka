@@ -4,6 +4,8 @@
 
 ### Bug fixes
 
+- Reuse unchanged native dependencies after application edits by validating staged headers through relocatable cache paths; keep external resource filenames intact (#22).
+
 - Keep incremental snapshots usable when dependency headers are not yet available through compiled application paths, while tracking transitive includes and falling back safely for uncertain inputs (#18).
 
 ## 0.2.0
