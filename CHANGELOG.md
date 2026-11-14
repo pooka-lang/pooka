@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Performance
+
+- Batch native Erlang sources to avoid starting a compiler VM for every module, preserving first-file order, options and source diagnostics (#24).
+
 ### Bug fixes
 
 - Reuse unchanged native dependencies after application edits by validating staged headers through relocatable cache paths; keep external resource filenames intact (#22).
