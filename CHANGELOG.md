@@ -10,6 +10,8 @@
 
 ### Bug fixes
 
+- Read published native application resources when no `.app.src` exists, preserving metadata and diagnosing invalid resources clearly (#17).
+
 - Align command activity labels with dependency downloads and format download durations using the same readable units as build times.
 
 - Reuse unchanged native dependencies after application edits by validating staged headers through relocatable cache paths; keep external resource filenames intact (#22).
