@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Bug fixes
+
+- Keep incremental snapshots usable when dependency headers are not yet available through compiled application paths, while tracking transitive includes and falling back safely for uncertain inputs (#18).
+
 ## 0.2.0
 
 ### Added
