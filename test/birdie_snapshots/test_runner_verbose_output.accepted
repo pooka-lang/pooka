@@ -19,6 +19,6 @@ test_name: verbose_mode_shows_timings_printed_output_and_compilation_test
   Finished in 0µs
 
 --- compilation ---
- Compiling app
-  Compiled 2 modules in 0µs
+  Compiling app
+   Compiled 2 modules in 0µs
 

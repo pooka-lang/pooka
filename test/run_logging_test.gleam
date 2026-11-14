@@ -53,15 +53,15 @@ pub fn compiled_uses_the_same_orange_as_other_activity_test() {
   assert report.stdout == "\"program output\"\n42\n"
   assert string.contains(
     report.stderr,
-    colour.bold_lantern_orange <> " Compiling",
+    colour.bold_lantern_orange <> "  Compiling",
   )
   assert string.contains(
     report.stderr,
-    colour.bold_lantern_orange <> "  Compiled",
+    colour.bold_lantern_orange <> "   Compiled",
   )
   assert string.contains(
     report.stderr,
-    colour.bold_lantern_orange <> "   Running",
+    colour.bold_lantern_orange <> "    Running",
   )
   assert !string.contains(report.stderr, colour.bold_amber_glow)
 }
@@ -75,9 +75,12 @@ pub fn checked_activity_uses_the_same_amber_as_compilation_test() {
   assert report.status == 0
   assert string.contains(
     report.stderr,
-    colour.bold_lantern_orange <> "   Checked",
+    colour.bold_lantern_orange <> "    Checked",
   )
-  assert !string.contains(report.stderr, colour.bold_amber_glow <> "   Checked")
+  assert !string.contains(
+    report.stderr,
+    colour.bold_amber_glow <> "    Checked",
+  )
 }
 
 pub fn echo_locations_use_the_muted_grey_when_colour_is_on_test() {
@@ -111,7 +114,7 @@ pub fn formatted_uses_the_same_orange_as_other_activity_test() {
   assert report.status == 0
   assert string.contains(
     report.stderr,
-    colour.bold_lantern_orange <> " Formatted",
+    colour.bold_lantern_orange <> "  Formatted",
   )
   assert !string.contains(report.stderr, colour.bold_amber_glow)
 }

@@ -10,6 +10,8 @@
 
 ### Bug fixes
 
+- Align command activity labels with dependency downloads and format download durations using the same readable units as build times.
+
 - Reuse unchanged native dependencies after application edits by validating staged headers through relocatable cache paths; keep external resource filenames intact (#22).
 
 - Keep incremental snapshots usable when dependency headers are not yet available through compiled application paths, while tracking transitive includes and falling back safely for uncertain inputs (#18).

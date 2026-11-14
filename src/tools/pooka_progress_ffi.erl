@@ -47,8 +47,8 @@ status(_) -> <<"Downloaded">>.
 line(Label,Name,Colour) ->
     io:put_chars(standard_error,[style(Colour),io_lib:format("~11ts",[Label]),reset(Colour)," ",Name,"\n"]).
 finish(Label,Name,Colour,Started) ->
-    Ms=(erlang:monotonic_time(microsecond)-Started)/1000,
-    line(Label,iolist_to_binary([Name,io_lib:format(" in ~.2fms",[Ms])]),Colour).
+    Elapsed=erlang:monotonic_time(microsecond)-Started,
+    line(Label,iolist_to_binary([Name," in ",utilities@timer:format(Elapsed)]),Colour).
 style(true) -> "\e[1;38;2;255;137;31m";
 style(false) -> "".
 reset(true) -> "\e[0m";
