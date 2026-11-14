@@ -12,7 +12,7 @@
 import gleam/string
 import utilities/colour.{type Output}
 
-const width = 10
+const width = 11
 
 pub fn activity(label: String, detail: String, output: Output) -> String {
   line(label, colour.bold_lantern_orange, detail, output)
