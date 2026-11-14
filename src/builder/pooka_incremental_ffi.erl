@@ -152,26 +152,40 @@ include_path(Kind,File,Source,Dirs,Applications) ->
     case Kind of
         include -> find_header(File,[filename:dirname(Source)|Dirs]);
         include_lib ->
-            [App|Tail] = filename:split(File),
-            case maps:find(App,Applications) of
-                {ok,Root} -> find_header(filename:join(Tail),[Root]);
-                error ->
-                    %% Runtime library headers are outside the graph, but their
-                    %% actual contents still become explicit snapshot inputs.
-                    case code:lib_dir(list_to_atom(App)) of
-                        {error,_} -> erlang:error(unknown_include_library);
-                        Root -> find_header(filename:join(Tail),[Root])
-                    end
+            %% epp tries ordinary include directories before application lookup.
+            %% Keep that order when a different dependency triggered recovery.
+            case find_header_optional(File,[filename:dirname(Source)|Dirs]) of
+                {ok,Path} -> Path;
+                missing -> library_header(File,Applications)
             end
     end.
 
-find_header(File,[Directory|Rest]) ->
+library_header(File,Applications) ->
+    [App|Tail] = filename:split(File),
+    case maps:find(App,Applications) of
+        {ok,Root} -> find_header(filename:join(Tail),[Root]);
+        error ->
+            %% Runtime library headers are outside the graph, but their
+            %% actual contents still become explicit snapshot inputs.
+            case code:lib_dir(list_to_atom(App)) of
+                {error,_} -> erlang:error(unknown_include_library);
+                Root -> find_header(filename:join(Tail),[Root])
+            end
+    end.
+
+find_header(File,Directories) ->
+    case find_header_optional(File,Directories) of
+        {ok,Path} -> Path;
+        missing -> erlang:error(missing_include)
+    end.
+
+find_header_optional(File,[Directory|Rest]) ->
     Path = normalise(filename:absname(File,Directory)),
     case filelib:is_regular(Path) of
-        true -> Path;
-        false -> find_header(File,Rest)
+        true -> {ok,Path};
+        false -> find_header_optional(File,Rest)
     end;
-find_header(_,[]) -> erlang:error(missing_include).
+find_header_optional(_,[]) -> missing.
 
 
 

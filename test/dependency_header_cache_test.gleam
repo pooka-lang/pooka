@@ -167,3 +167,21 @@ pub fn unresolved_conditional_headers_disable_the_fallback_safely_test() {
   )
   assert stamp.snapshot(graph, "dev") == Error(Nil)
 }
+
+pub fn fallback_preserves_normal_include_lib_search_precedence_test() {
+  use directory <- support.with_directory("headers_search_precedence")
+  let graph = fixture(directory)
+  support.write(
+    directory <> "/app/ffi/local_library/include/local.hrl",
+    "-include(\"../../../extra/value.hrl\").\n",
+  )
+  support.write(directory <> "/app/extra/value.hrl", "-define(LOCAL, 1).\n")
+  support.write(
+    directory <> "/app/ffi/sample.erl",
+    "-module(sample).\n-include_lib(\"shared_headers/include/constants.hrl\").\n-include_lib(\"local_library/include/local.hrl\").\nanswer() -> {?ANSWER, ?LOCAL}.\n",
+  )
+  let assert Ok(first) = stamp.snapshot(graph, "dev")
+  support.write(directory <> "/app/extra/value.hrl", "-define(LOCAL, 2).\n")
+  let assert Ok(changed) = stamp.snapshot(graph, "dev")
+  assert first.key != changed.key
+}
