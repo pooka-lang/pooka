@@ -45,7 +45,8 @@ foreign_input(P,Path) ->
     Root = chars(element(2,P)),
     File = chars(Path),
     filename:extension(File) =/= ".pooka" andalso
-    not lists:prefix(filename:join(Root,"test") ++ "/",File) andalso
+    (not lists:prefix(filename:join(Root,"test") ++ "/",File) orelse
+     lists:prefix(filename:join([Root,"test","ffi"]) ++ "/",File)) andalso
     not lists:prefix(filename:join(Root,"native") ++ "/",File).
 
 %% Collect relevant package configuration and source inputs, including pooka.toml.

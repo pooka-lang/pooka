@@ -17,6 +17,7 @@ import diagnostics/diagnostic.{type Diagnostic}
 import filepath
 import gleam/list
 import gleam/result
+import gleam/set
 import gleam/string
 import simplifile
 
@@ -63,7 +64,44 @@ pub fn compile(
   root: String,
   work: String,
 ) -> Result(List(#(String, BitArray)), ForeignError) {
-  let sources = discover(root)
+  compile_sources(discover(root), work)
+}
+
+/// Test fixtures belong to the root project, never to a published dependency.
+///
+/// ```text
+/// pooka test: ffi/ + test/ffi/
+/// pooka publish: ffi/
+/// ```
+pub fn compile_tests(
+  root: String,
+  work: String,
+) -> Result(List(#(String, BitArray)), ForeignError) {
+  compile_sources(
+    list.append(discover(root), discover(filepath.join(root, "test"))),
+    work,
+  )
+}
+
+fn compile_sources(
+  sources: List(Source),
+  work: String,
+) -> Result(List(#(String, BitArray)), ForeignError) {
+  // Staged Gleam sources share one package directory. Refuse a duplicate
+  // before a test helper could overwrite the production file while copying.
+  use _ <- result.try(
+    list.try_fold(sources, set.new(), fn(seen, source) {
+      let key = #(source.language, source.relative)
+      case set.contains(seen, key) {
+        True ->
+          Error(CompilationFailed(
+            source.path,
+            "Foreign sources share the same module path: " <> source.relative,
+          ))
+        False -> Ok(set.insert(seen, key))
+      }
+    }),
+  )
   foreign_language.all
   |> list.try_map(fn(language) {
     let files = list.filter(sources, fn(source) { source.language == language })
@@ -84,7 +122,7 @@ fn compile_language(
     Error(Nil) ->
       list.try_map(sources, fn(source) {
         beam.compile_foreign_erlang(source.path)
-        |> result.map_error(CompilationFailed("ffi/" <> source.relative, _))
+        |> result.map_error(CompilationFailed(source.path, _))
       })
     Ok(command) -> {
       use Nil <- result.try(prepare(language, sources, work, command))
@@ -217,7 +255,7 @@ pub fn to_diagnostic(error: ForeignError, root: String) -> Diagnostic {
       )
       |> diagnostic.conclusion(
         "`"
-        <> source
+        <> relative(source)
         <> "` failed to compile:\n\n"
         <> string.trim(relative(output)),
       )

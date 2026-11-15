@@ -37,6 +37,7 @@ pub fn publish_prepares_hex_v3_sources_and_documentation_without_uploading_test(
   support.write(dir <> "/priv/data.txt", "resource")
   support.write(dir <> "/assets/icon.svg", "<svg></svg>")
   support.write(dir <> "/test/invalid.spec.pooka", "invalid")
+  support.write(dir <> "/test/ffi/invalid.erl", "invalid")
   support.write(dir <> "/dev/secret", "excluded")
   let assert Ok(report) = publish.prepare(dir)
   assert inspect_archive(report.package, report.documentation)

@@ -403,7 +403,13 @@ fn compile_project(
           cached_foreign(
             filepath.join(paths.artifacts, "foreign.cache"),
             stamp.foreign_key(snapshot, owner.name),
-            fn() { foreign_modules(local, paths) },
+            fn() {
+              foreign_modules(
+                local,
+                paths,
+                include_tests && owner.name == checked.project.name,
+              )
+            },
           )
           |> result.map(fn(value) { #(value.0, None, value.1) })
         dependency.Beam(_, _) ->
@@ -826,11 +832,13 @@ fn migrate_legacy(checked: check.Report) -> Result(Nil, Failure) {
 fn foreign_modules(
   checked: check.Report,
   paths: layout.Layout,
+  include_tests: Bool,
 ) -> Result(List(#(String, BitArray)), Failure) {
-  foreign.compile(
-    checked.project.root,
-    filepath.join(paths.artifacts, "foreign"),
-  )
+  let compile = case include_tests {
+    True -> foreign.compile_tests
+    False -> foreign.compile
+  }
+  compile(checked.project.root, filepath.join(paths.artifacts, "foreign"))
   |> result.map_error(fn(error) {
     Failure(Ok(checked), [foreign.to_diagnostic(error, checked.project.root)])
   })

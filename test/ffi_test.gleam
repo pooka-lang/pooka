@@ -462,3 +462,66 @@ pub fn lfe_ffi_source_executes_test() {
     }
   }
 }
+
+pub fn root_foreign_test_helpers_rebuild_and_stay_out_of_production_test() {
+  use directory <- support.with_directory("ffi_test_helpers")
+  project(directory, "main() { Nil }")
+  support.write(
+    directory <> "/test/helper.spec.pooka",
+    "module helper_test\nexternal Helper from erlang \"test_helper\" { answer() -> Int }\ntest \"a test-only helper\" { assert Helper.answer() == 42 }\n",
+  )
+  support.write(
+    directory <> "/test/ffi/test_helper.erl",
+    "-module(test_helper).\n-export([answer/0]).\nanswer() -> 42.\n",
+  )
+  let env = command.plain(directory)
+  let first = support.cli_main(["test"], env)
+  assert first.status == 0
+  assert string.contains(first.stdout, "1 passed")
+  let assert Ok(warm) = build.build(directory)
+  assert warm.reused
+  support.write(
+    directory <> "/test/ffi/test_helper.erl",
+    "-module(test_helper).\n-export([answer/0]).\nanswer() -> 43.\n",
+  )
+  let assert Ok(changed) = build.build(directory)
+  assert list.contains(changed.compiled_foreign, "test_helper")
+  let failed = support.cli_main(["test"], env)
+  assert failed.status == 1
+  support.write(directory <> "/test/ffi/test_helper.erl", "not valid Erlang")
+  let assert Ok(production) = build.build_production(directory)
+  assert simplifile.is_file(production.directory <> "/test_helper.beam")
+    == Ok(False)
+}
+
+pub fn dependency_foreign_test_helpers_are_not_compiled_test() {
+  use directory <- support.with_directory("ffi_dependency_test_helpers")
+  let app = directory <> "/app"
+  project(app, "import helper\nmain() { assert helper.answer() == 42 }")
+  support.write(
+    app <> "/pooka.toml",
+    "name = \"app\"\nversion = \"1.0.0\"\n[dependencies]\nhelper = { path = \"../helper\" }\n",
+  )
+  support.write(
+    directory <> "/helper/pooka.toml",
+    "name = \"helper\"\nversion = \"1.0.0\"\n",
+  )
+  support.write(
+    directory <> "/helper/src/helper.pooka",
+    "module helper\nanswer() { 42 }\n",
+  )
+  support.write(directory <> "/helper/test/ffi/invalid.erl", "not valid Erlang")
+  let outcome = support.cli_main(["run"], command.plain(app))
+  assert outcome.status == 0
+}
+
+pub fn test_helpers_cannot_replace_a_production_foreign_module_path_test() {
+  use directory <- support.with_directory("ffi_test_helper_collision")
+  project(directory, "main() { Nil }")
+  let source = "-module(helper).\n-export([answer/0]).\nanswer() -> 42.\n"
+  support.write(directory <> "/ffi/helper.erl", source)
+  support.write(directory <> "/test/ffi/helper.erl", source)
+  let outcome = support.cli_main(["build"], command.plain(directory))
+  assert outcome.status == 1
+  assert string.contains(outcome.stderr, "share the same module path")
+}
