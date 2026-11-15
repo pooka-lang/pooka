@@ -21,5 +21,7 @@ jobs:
       - run: gleam deps download
       - run: node --test scripts/release-assets.test.mjs scripts/doc-versions.test.mjs
       - run: sh -n install.sh
+      - run: gleam build
+      - run: python3 scripts/check-publish-prompt.py
       - run: gleam test
       - run: gleam format --check src test
