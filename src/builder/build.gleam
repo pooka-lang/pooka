@@ -412,6 +412,7 @@ fn compile_project(
             native_library,
             filepath.join(paths.artifacts, "native.cache"),
             key,
+            owners,
           )
           |> result.map(fn(value) { #(value.0.0, Some(value.0.1), value.1) })
           |> result.map_error(failure(checked, owner.root, _))
@@ -472,6 +473,16 @@ fn compile_project(
           },
         ),
       )
+      use Nil <- result.try(case local.project.kind {
+        dependency.Pooka -> Ok(Nil)
+        dependency.Beam(_, _) ->
+          native.stage_assets(
+            native_library,
+            native.application(local.project),
+            paths.package,
+          )
+          |> result.map_error(failure(local, local.project.root, _))
+      })
       use Nil <- result.try(
         list.try_each(selected, fn(artifact) {
           use Nil <- result.try(write_bits(

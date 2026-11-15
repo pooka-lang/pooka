@@ -34,8 +34,28 @@ pub fn compile(
   package: Project,
   library: String,
 ) -> Result(#(List(#(String, BitArray)), String), String) {
+  compile_with(
+    package,
+    library,
+    list.map(package.dependencies, fn(dep) { dep.name }),
+  )
+}
+
+fn compile_with(
+  package: Project,
+  library: String,
+  dependencies: List(String),
+) -> Result(#(List(#(String, BitArray)), String), String) {
   let assert d.Beam(app, tools) = package.kind
-  build(package.root, library, package.name, app, package.version, tools)
+  build(
+    package.root,
+    library,
+    package.name,
+    app,
+    package.version,
+    tools,
+    dependencies,
+  )
 }
 
 pub fn compile_cached(
@@ -43,9 +63,10 @@ pub fn compile_cached(
   library: String,
   path: String,
   key: BitArray,
+  packages: List(Project),
 ) -> Result(#(#(List(#(String, BitArray)), String), Bool), String) {
   cached(path, key, library, application(package), fn() {
-    compile(package, library)
+    compile_with(package, library, applications(package.dependencies, packages))
   })
 }
 
@@ -75,6 +96,7 @@ fn build(
   application: String,
   version: String,
   tools: List(String),
+  dependencies: List(String),
 ) -> Result(#(List(#(String, BitArray)), String), String)
 
 @external(erlang, "pooka_package_ffi", "stage_library")
@@ -90,3 +112,11 @@ pub fn directory(target: String) -> Result(String, String)
 
 @external(erlang, "pooka_package_ffi", "using_directory")
 pub fn using_directory(directory: String, run: fn() -> a) -> a
+
+/// Keep native private files beside their application, including on cached builds.
+@external(erlang, "pooka_package_ffi", "stage_assets")
+pub fn stage_assets(
+  library: String,
+  application: String,
+  destination: String,
+) -> Result(Nil, String)

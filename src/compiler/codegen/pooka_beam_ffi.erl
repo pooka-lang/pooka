@@ -281,9 +281,9 @@ erl_command() ->
 code_paths(Directory) ->
     Target = filename:dirname(filename:dirname(unicode:characters_to_list(Directory))),
     RootEbin = unicode:characters_to_list(Directory),
-    Others = lists:delete(RootEbin, lists:usort(
-        filelib:wildcard(filename:join([Target, "*", "ebin"]))))
-        ++ elixir_code_paths(RootEbin),
+    Native = lists:delete(RootEbin, lists:usort(
+        filelib:wildcard(filename:join([Target, "*", "ebin"])))),
+    Others = Native ++ elixir_code_paths([RootEbin | Native]),
     {RootEbin, Others}.
 
 
@@ -379,10 +379,12 @@ run_foreign_compiler(Program, Arguments, BeamDir) ->
 
 
 
-elixir_code_paths(Ebin) ->
-    case filelib:wildcard(filename:join(Ebin, "Elixir.*.beam")) of
-        [] -> [];
-        _ -> discover_elixir_code_paths()
+elixir_code_paths(Ebins) ->
+    case lists:any(fun(Ebin) ->
+        filelib:wildcard(filename:join(Ebin,"Elixir.*.beam")) =/= []
+    end,Ebins) of
+        false -> [];
+        true -> discover_elixir_code_paths()
     end.
 
 

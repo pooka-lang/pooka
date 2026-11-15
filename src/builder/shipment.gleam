@@ -23,6 +23,7 @@ import filepath
 import gleam/list
 import gleam/result
 import gleam/string
+import project/dependency
 import simplifile
 
 pub type Report {
@@ -222,7 +223,18 @@ fn prepare(
       ))
       use Nil <- result.try(copy_optional_priv(
         built,
-        filepath.join(dependency.root, "priv"),
+        case dependency.kind {
+          dependency.Pooka -> filepath.join(dependency.root, "priv")
+          dependency.Beam(_, _) ->
+            filepath.join(
+              layout.erlang(
+                project.root,
+                native.application(dependency),
+                layout.Production,
+              ).package,
+              "priv",
+            )
+        },
         filepath.join(destination, "priv"),
       ))
       copy_optional_priv(

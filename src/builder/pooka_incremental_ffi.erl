@@ -58,8 +58,8 @@ inputs(P,Tests,Applications) ->
         {beam,_,_} -> include_options(Root);
         pooka -> {[],[],[]}
     end,
-    Directories = ["src","ffi","include","priv"] ++ case Tests of true -> ["test"]; false -> [] end,
-    Config = ["pooka.toml","gleam.toml","rebar.config","rebar.config.script","mix.exs","manifest.toml"],
+    Directories = ["src","lib","config","ffi","include","priv"] ++ case Tests of true -> ["test"]; false -> [] end,
+    Config = ["pooka.toml","gleam.toml","rebar.config","rebar.config.script","mix.exs","mix.lock","manifest.toml"],
     Files = lists:append([tree(filename:join(Root,D)) || D <- Directories]) ++
             native_tree(filename:join(Root,"native")) ++
             lists:append([tree(filename:join(Root,C)) || C <- Config]),
@@ -232,7 +232,7 @@ toolchain() ->
     
     
     Env = fingerprinted_environment(os:getenv(), false),
-    Tools = [{P,executable(P)} || P <- ["gleam","erl","erlc","elixirc","lfec"]],
+    Tools = [{P,executable(P)} || P <- ["gleam","erl","erlc","elixirc","mix","lfec"]],
     digest({erlang:system_info(otp_release),erlang:system_info(version),
             compile:module_info(md5),Beams,Env,Tools}).
 
@@ -242,7 +242,8 @@ toolchain() ->
 project_environment(P) ->
     Root = chars(element(2, P)),
     Opaque = element(9, P) =/= [] orelse
-        filelib:is_regular(filename:join(Root, "rebar.config.script")),
+        filelib:is_regular(filename:join(Root, "rebar.config.script")) orelse
+        filelib:is_regular(filename:join(Root,"mix.exs")),
     case Opaque of
         true -> fingerprinted_environment(os:getenv(), true);
         false -> []
@@ -333,7 +334,7 @@ write_report(Path,Key,Packages,Report) ->
     catch _:_ -> {error,nil} end.
 
 output(Packages) ->
-    lists:append([lists:append([tree(filename:join(chars(P),D)) || D <- ["ebin","include","native"]]) ++
+    lists:append([lists:append([tree(filename:join(chars(P),D)) || D <- ["ebin","include","priv","native"]]) ++
                   artifact_tree(filename:join(chars(P),"_pooka_artefacts")) || P <- Packages]) ++
     module_inputs(lists:append([[{<<>>,read_required(F)} || F <- filelib:wildcard(filename:join([chars(P),"ebin","*.beam"]))] || P <- Packages])) ++
     case Packages of
