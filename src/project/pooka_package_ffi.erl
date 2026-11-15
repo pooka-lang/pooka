@@ -11,7 +11,7 @@
 %%% ```
 
 -module(pooka_package_ffi).
--export([canonical/1, canonical_relative/2, download_name/1, write_atomic/2, git_url/2, git_checkout/5, http_get/1, hex_unpack/3, hex_cached/2, native_build/6, stage_library/4, native_directory/1, using_directory/2, repository_identity/1, rebar_config/1]).
+-export([canonical/1, canonical_relative/2, download_name/1, write_atomic/2, git_url/2, git_checkout/5, http_get/1, hex_unpack/3, hex_cached/2, native_build/7, stage_library/4, stage_assets/3, native_directory/1, using_directory/2, repository_identity/1, rebar_config/1]).
 %% Resolve against the declaring package with the host's filename rules.
 %% A Windows drive or UNC root must replace Owner, rather than become a child
 %% of it. filename:absname/2 also preserves drive-relative path semantics.
@@ -160,11 +160,13 @@ git(Directory,Arguments) -> run_tool("git",Directory,Arguments).
 %% project diagnostics.
 run_tool(Program,Directory,Arguments) -> run_tool(Program,Directory,Arguments,60000).
 run_tool(Program,Directory,Arguments,Timeout) ->
+    run_tool(Program,Directory,Arguments,Timeout,[]).
+run_tool(Program,Directory,Arguments,Timeout,Environment) ->
     case os:find_executable(Program) of
         false -> package_fail(["Required dependency tool is missing: ",Program]);
         Executable ->
             Port = open_port({spawn_executable,Executable},[binary,exit_status,stderr_to_stdout,
-                {cd,Directory},{env,[{"GIT_TERMINAL_PROMPT","0"}]},{args,Arguments}]),
+                {cd,Directory},{env,[{"GIT_TERMINAL_PROMPT","0"}|Environment]},{args,Arguments}]),
             tool_output(Port,[],Program,erlang:monotonic_time(millisecond)+Timeout)
     end.
 tool_output(Port,Parts,Program,Deadline) ->
@@ -310,7 +312,7 @@ stage_library(LibraryBinary,NameBinary,Modules,Resource) ->
         {ok,nil}
     catch Class:Reason -> {error,unicode:characters_to_binary(io_lib:format("Native library staging failed: ~tp:~tp",[Class,Reason]))} end.
 
-native_build(RootBinary,LibraryBinary,NameBinary,AppBinary,VersionBinary,ToolBinaries) ->
+native_build(RootBinary,LibraryBinary,NameBinary,AppBinary,VersionBinary,ToolBinaries,Dependencies) ->
     try
         Root = unicode:characters_to_list(RootBinary), Library = unicode:characters_to_list(LibraryBinary),
         _Name = unicode:characters_to_list(NameBinary), App = binary_to_atom(AppBinary,utf8),
@@ -319,6 +321,7 @@ native_build(RootBinary,LibraryBinary,NameBinary,AppBinary,VersionBinary,ToolBin
         case file:read_link_info(Output) of {ok,_} -> ok = file:del_dir_r(Output); {error,enoent} -> ok end,
         ok = filelib:ensure_dir(filename:join(Ebin,"placeholder")),
         copy_native_headers(filename:join(Root,"include"),filename:join(Output,"include")),
+        copy_native_headers(filename:join(Root,"priv"),filename:join(Output,"priv")),
         Tools = [unicode:characters_to_list(T) || T <- ToolBinaries],
         case lists:member("gleam",Tools) of
             true ->
@@ -329,21 +332,10 @@ native_build(RootBinary,LibraryBinary,NameBinary,AppBinary,VersionBinary,ToolBin
                     true -> package_fail("Native packages requiring NIF/build scripts are not supported yet");
                     false -> ok
                 end,
-                Config = case rebar_config(RootBinary) of
-                    {ok, Terms} -> Terms;
-                    {error, Problem} -> package_fail(Problem)
-                end,
-                validate_native_config(Config),
-                Files = lists:sort(filelib:fold_files(filename:join(Root,"src"),".*\\.erl$",true,fun(File,Acc) -> [File|Acc] end,[])),
-                case Files of [] -> package_fail("Native package has no Erlang sources and is not a Gleam package"); _ -> ok end,
-                Options = [{outdir,Ebin},{i,filename:join(Root,"include")},
-                    {i,filename:join(Root,"src")}] ++
-                    [native_option(Option,Root) || Option <- proplists:get_value(erl_opts,Config,[])],
-                Paths = filelib:wildcard(filename:join([Library,"*","ebin"])),
-                CodeArgs = lists:append([["-pa",Path] || Path <- Paths]),
-                First = [filename:join(Root,F) || F <- proplists:get_value(erl_first_files,Config,[])],
-                Remaining = [F || F <- Files, not lists:member(F,First)],
-                compile_erlang_package(Root,Library,App,CodeArgs,First,Remaining,Options)
+                case lists:member("mix",Tools) orelse filelib:is_regular(filename:join(Root,"mix.exs")) of
+                    true -> compile_elixir_package(Root,Library,Output,Ebin,App,NameBinary,Dependencies);
+                    false -> compile_native_erlang(Root,Library,Ebin,App)
+                end
         end,
         Beams = [{unicode:characters_to_binary(filename:basename(File,".beam")),read_required(File)} || File <- lists:sort(filelib:wildcard(filename:join(Ebin,"*.beam")))],
         case Beams of [] -> package_fail("Native package produced no BEAM modules"); _ -> ok end,
@@ -363,6 +355,82 @@ native_build(RootBinary,LibraryBinary,NameBinary,AppBinary,VersionBinary,ToolBin
         {ok,{Beams,Resource}}
     catch throw:{package_error,Error} -> {error,Error};
           Class:Reason -> {error,unicode:characters_to_binary(io_lib:format("Native build failed: ~tp:~tp",[Class,Reason]))} end.
+%% A Mix project may use macros, generators and compile-time dependencies.
+%% Let Mix keep those promises, but give it a private copy of the source and
+%% the already compiled dependency paths. It must not fetch a second graph or
+%% leave _build/ and dependency state inside the verified Hex cache.
+%%
+%% ```text
+%% Hex lib/**/*.ex -> private Mix build -> application/ebin/*.beam + .app
+%% ```
+%% https://hexdocs.pm/mix/Mix.Tasks.Compile.html
+compile_elixir_package(Root,Library,Output,Ebin,App,Name,Dependencies) ->
+    case os:find_executable("elixir") =:= false orelse os:find_executable("mix") =:= false of
+        true -> package_fail([Name," is an Elixir package; install Elixir to use it"]);
+        false -> ok
+    end,
+    Source = filename:join(Output,".mix-source"),
+    Build = filename:join(Output,".mix-build"),
+    Script = filename:join(Output,".mix-build.exs"),
+    try
+        copy_mix_source(Root,Source),
+        %% The Pooka solver owns dependency versions and ordering. Keep their
+        %% staged ebins on the code path while Mix compiles only this project.
+        Environment = [{"MIX_BUILD_PATH",Build},{"MIX_DEPS_PATH",filename:join(Source,"deps")},
+                       {"MIX_ENV","prod"},{"MIX_TARGET","host"},{"MIX_EXS","mix.exs"},
+                       {"ERL_LIBS",Library}],
+        ok = file:write_file(Script,mix_script()),
+        _ = run_tool("elixir",Source,[Script,atom_to_list(App),Source,Build,Library] ++
+            [unicode:characters_to_list(Dependency) || Dependency <- Dependencies],120000,Environment),
+        Produced = filename:join([Build,"lib",atom_to_list(App),"ebin"]),
+        case filelib:is_regular(filename:join(Produced,atom_to_list(App) ++ ".app")) of
+            true -> copy_native_headers(Produced,Ebin);
+            false -> package_fail("Mix did not produce the declared OTP application resource")
+        end,
+        %% A compiler task may generate private runtime assets, too.
+        %% Mix normally links priv back to the project. Copy from our private
+        %% source rather than following that generated symlink after cleanup.
+        copy_native_headers(filename:join(Source,"priv"),filename:join(Output,"priv"))
+    after
+        file:del_dir_r(Source),
+        file:del_dir_r(Build),
+        file:delete(Script)
+    end.
+
+%% Mix's public project API accepts post-configuration for an embedded build.
+%% Original compiler tasks and application callbacks remain in charge; only the
+%% dependency locations come from the graph Pooka already checked.
+%% https://hexdocs.pm/mix/Mix.Project.html#in_project/4
+mix_script() ->
+    <<"Mix.start()\n[app, source, build, library | names] = System.argv()\ndependencies = Enum.map(names, fn name ->\n  {String.to_atom(name), [path: Path.join(library, name), compile: false]}\nend)\n# Local paths describe Pooka's resolved graph. Mix does not need Hex installed,\n# and cannot fetch a second set of versions while compiling this package.\nMix.Project.in_project(String.to_atom(app), source,\n  [deps: dependencies, build_path: build], fn _ ->\n    Mix.Task.run(\"compile\", [\"--no-deps-check\", \"--no-prune-code-paths\",\n      \"--no-protocol-consolidation\"])\n  end)\n">>.
+
+copy_mix_source(Source,Destination) ->
+    ok = filelib:ensure_dir(filename:join(Destination,"placeholder")),
+    {ok,Names} = file:list_dir(Source),
+    lists:foreach(fun(Name) ->
+        case lists:member(Name,[".git","_build","deps",".pooka-hex",".pooka-hex.tar"]) of
+            true -> ok;
+            false -> copy_native_headers(filename:join(Source,Name),filename:join(Destination,Name))
+        end
+    end,Names).
+
+compile_native_erlang(Root,Library,Ebin,App) ->
+    Config = case rebar_config(unicode:characters_to_binary(Root)) of
+        {ok, Terms} -> Terms;
+        {error, Problem} -> package_fail(Problem)
+    end,
+    validate_native_config(Config),
+    Files = lists:sort(filelib:fold_files(filename:join(Root,"src"),".*\\.erl$",true,fun(File,Acc) -> [File|Acc] end,[])),
+    case Files of [] -> package_fail("Native package has no Erlang sources and is not a Gleam package"); _ -> ok end,
+    Options = [{outdir,Ebin},{i,filename:join(Root,"include")},
+        {i,filename:join(Root,"src")}] ++
+        [native_option(Option,Root) || Option <- proplists:get_value(erl_opts,Config,[])],
+    Paths = filelib:wildcard(filename:join([Library,"*","ebin"])),
+    CodeArgs = lists:append([["-pa",Path] || Path <- Paths]),
+    First = [filename:join(Root,F) || F <- proplists:get_value(erl_first_files,Config,[])],
+    Remaining = [F || F <- Files, not lists:member(F,First)],
+    compile_erlang_package(Root,Library,App,CodeArgs,First,Remaining,Options).
+
 %% Keep the native compiler isolated, but let independent modules use a few
 %% schedulers inside that one VM. A binary plan keeps source lists and options
 %% off the command line, including long paths and package-specific macros.
@@ -476,9 +544,27 @@ copy_native_headers(Source,Destination) ->
             {ok,Names} = file:list_dir(Source),
             lists:foreach(fun(Name) -> copy_native_headers(filename:join(Source,Name),filename:join(Destination,Name)) end,Names);
         {ok,Info} when element(3,Info) =:= regular ->
-            {ok,_} = file:copy(Source,Destination),ok;
+            {ok,_} = file:copy(Source,Destination),
+            ok = file:change_mode(Destination,element(8,Info) band 8#777);
         _ -> package_fail("Native include headers must be regular files or directories")
     end.
+
+%% Materialize native headers and runtime assets before the staging corridor
+%% disappears. Replace former output so a removed private file cannot linger.
+stage_assets(LibraryBinary,AppBinary,DestinationBinary) ->
+    try
+        Source = filename:join(unicode:characters_to_list(LibraryBinary),unicode:characters_to_list(AppBinary)),
+        Destination = unicode:characters_to_list(DestinationBinary),
+        lists:foreach(fun(Name) ->
+            Target = filename:join(Destination,Name),
+            case file:read_link_info(Target) of
+                {error,enoent} -> ok;
+                {ok,_} -> ok = file:del_dir_r(Target)
+            end,
+            copy_native_headers(filename:join(Source,Name),Target)
+        end,["include","priv"]),
+        {ok,nil}
+    catch Class:Reason -> {error,unicode:characters_to_binary(io_lib:format("Native assets could not be staged: ~tp:~tp",[Class,Reason]))} end.
 
 native_directory(TargetBinary) ->
     try

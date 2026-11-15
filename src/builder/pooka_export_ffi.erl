@@ -83,9 +83,16 @@ runtime_packages(EbinBinary, TargetBinaries, AppName) ->
                 end, [filename:join(Ebin, atom_to_list(Module) ++ ".beam")
                       || Module <- resource_modules(Ebin,unicode:characters_to_list(AppName))]),
                 Referenced = Targets ++ Imports,
-                Seeds = [elixir | [App || {App, Path} <- maps:to_list(Candidates),
+                %% A runtime application can be required by the .app contract
+                %% without a direct module import (Logger is a common example).
+                {ok,[{application,_,Properties}]} = file:consult(
+                    filename:join(Ebin,unicode:characters_to_list(AppName) ++ ".app")),
+                Declared = proplists:get_value(applications,Properties,[]) ++
+                           proplists:get_value(included_applications,Properties,[]),
+                Seeds = [elixir | [App || App <- Declared, maps:is_key(App,Candidates)]] ++
+                    [App || {App, Path} <- maps:to_list(Candidates),
                     lists:any(fun(Module) -> filelib:is_file(filename:join(Path, atom_to_list(Module) ++ ".beam")) end,
-                              Referenced)]],
+                              Referenced)],
                 Selected = runtime_closure(Seeds, Candidates, #{}),
                 {ok, [{atom_to_binary(App, utf8), unicode:characters_to_binary(filename:dirname(maps:get(App, Candidates)))}
                       || App <- lists:sort(maps:keys(Selected))]}
