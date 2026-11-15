@@ -33,7 +33,7 @@ pooka test
 
 Visit [pooka.run](https://pooka.run/) for the [documentation](https://pooka.run/docs/), [language tour](https://pooka.run/tour/) and [cookbook](https://pooka.run/cookbook/).
 
-The [standard library](https://github.com/pooka-lang/pooka_stdlib) lives in its own repository, with its [API documentation on HexDocs](https://pooka-stdlib.hexdocs.pm/).
+The [standard library](https://github.com/pooka-lang/stdlib) lives in its own repository, with its [API documentation on HexDocs](https://pooka-stdlib.hexdocs.pm/).
 
 ## Development
 

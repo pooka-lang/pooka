@@ -5,7 +5,7 @@ licences = ["Apache-2.0"]
 repository = { type = "github", user = "pooka-lang", repo = "pooka" }
 links = [
   { title = "Issues", href = "https://github.com/pooka-lang/pooka/issues" },
-  { title = "Standard library", href = "https://github.com/pooka-lang/pooka_stdlib" },
+  { title = "Standard library", href = "https://github.com/pooka-lang/stdlib" },
 ]
 gleam = ">= 1.19.0"
 target = "erlang"
