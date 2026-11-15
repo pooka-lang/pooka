@@ -10,40 +10,9 @@
 
 Pooka is a small, statically typed language for the BEAM. It has immutable classes, interfaces, enums, pattern matching, actors and `Result`-based errors, and it gets along well with its neighbours: Erlang, Elixir and Gleam.
 
-```pooka
-module main
-
-class Creature {
-  let name: String
-
-  new(name: String) {
-    self.name = name
-  }
-
-  greet() -> String {
-    "..."
-  }
-}
-
-class Owl is Creature {
-  new(name: String) {
-    super.new(name)
-  }
-
-  greet() -> String {
-    "hoo"
-  }
-}
-
-main() {
-  let owl: Creature = Owl("Ada")
-  echo owl.name + " says " + owl.greet()
-}
-```
-
 ## Install
 
-Pooka is one file, `pooka`, and needs Erlang/OTP 29. The [installation guide](docs/install.md) covers macOS, Linux, Windows and CI.
+Pooka is one file, `pooka`, and needs Erlang/OTP 29. The [installation guide](https://pooka.run/docs/install/) covers macOS, Linux, Windows and CI.
 
 To build from source, with Gleam installed:
 
@@ -62,17 +31,9 @@ pooka test
 
 ## Documentation
 
-- [Installing Pooka](docs/install.md)
-- [Getting started](docs/getting_started.md)
-- [A tour of Pooka](docs/pooka_tour.md)
-- [Testing](docs/pooka_testing.md)
-- [CLI reference](docs/cli_reference.md)
-- [pooka.toml](docs/pooka_toml.md)
-- [Publishing to Hex](docs/publishing.md)
-- [BEAM interop](docs/beam_interop.md)
-- [FAQ](docs/faq.md)
+Visit [pooka.run](https://pooka.run/) for the [documentation](https://pooka.run/docs/), [language tour](https://pooka.run/tour/) and [cookbook](https://pooka.run/cookbook/).
 
-The [standard library](https://github.com/pooka-lang/pooka_stdlib) lives in its own repository.
+The [standard library](https://github.com/pooka-lang/pooka_stdlib) lives in its own repository, with its [API documentation on HexDocs](https://pooka-stdlib.hexdocs.pm/).
 
 ## Development
 

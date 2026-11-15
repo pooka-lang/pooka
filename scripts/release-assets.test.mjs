@@ -24,7 +24,7 @@ test('release contains only the verified portable escript and its checksum', asy
     assert.deepEqual(result.assets, ['pooka', 'pooka.sha256']);
     assert.match(result.notes, /Erlang\/OTP 29 is required/);
     assert.match(result.notes, /releases\/download\/v0.1.0\/pooka/);
-    assert.match(result.notes, /blob\/v0.1.0\/docs\/install\.md/);
+    assert.match(result.notes, /https:\/\/pooka\.run\/docs\/install\//);
     assert.doesNotMatch(result.notes, /SetEnvironmentVariable|export PATH|```/);
     assert.doesNotMatch(result.notes, /\{\{[A-Z_]+\}\}/);
     assert.doesNotMatch(result.notes, /bundled|gleepack|\.tar\.gz/);

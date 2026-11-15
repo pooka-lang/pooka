@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Documentation
+
+- Use pooka.run for documentation and installation links; remove the repository documentation directory and the README language example.
+
 ## 0.3.0
 
 ### Added

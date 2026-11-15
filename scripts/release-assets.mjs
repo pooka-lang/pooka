@@ -23,7 +23,7 @@ export async function prepare({ input, output, repository, tag, runUrl }) {
   for (const file of assets) await copyFile(join(input, file), join(output, file));
   const base = `https://github.com/${repository}/releases/download/${encodeURIComponent(tag)}`;
   const template = await readFile(new URL('./release-notes.md', import.meta.url), 'utf8');
-  const rendered = template.replaceAll('{{DOWNLOAD_BASE}}', base).replaceAll('{{RUN_URL}}', runUrl).replaceAll('{{INSTALL_URL}}', `https://github.com/${repository}/blob/${encodeURIComponent(tag)}/docs/install.md`);
+  const rendered = template.replaceAll('{{DOWNLOAD_BASE}}', base).replaceAll('{{RUN_URL}}', runUrl).replaceAll('{{INSTALL_URL}}', 'https://pooka.run/docs/install/');
   const notes = `${start}\n${rendered.trim()}\n${end}`;
   return { assets, notes };
 }
