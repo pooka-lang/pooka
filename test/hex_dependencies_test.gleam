@@ -6,6 +6,8 @@
 //// packages are then exercised without a network dependency.
 
 import builder/build
+import builder/escript
+import builder/shipment
 import cli/command
 import gleam/bit_array
 import gleam/dict
@@ -628,3 +630,170 @@ pub fn published_resource_properties_must_be_a_list_test() {
     "Invalid native application resource",
   )
 }
+
+@external(erlang, "ffi_test_ffi", "has_executable")
+fn has_executable(name: String) -> Bool
+
+@external(erlang, "shipment_test_ffi", "run_escript")
+fn execute_escript(
+  path: String,
+  arguments: List(String),
+  directory: String,
+) -> #(Int, String)
+
+// Put the macro after its caller alphabetically. Mix must establish compile-time
+// order, and its generated application resource must keep runtime dependencies.
+pub fn cached_hex_elixir_packages_build_without_mutating_sources_test() {
+  use directory <- support.with_directory("hex_native_elixir")
+  let selected =
+    prepare(directory, "fixture", "fixture", "mix", [
+      #(
+        "mix.exs",
+        "defmodule Fixture.MixProject do\n  use Mix.Project\n  def project, do: [app: :fixture, version: \"1.0.0\", deps: []]\n  def application, do: [extra_applications: [:logger]]\nend\n",
+      ),
+      #(
+        "lib/a_fixture.ex",
+        "defmodule Fixture do\n  require Fixture.Definition\n  Fixture.Definition.answer()\nend\n",
+      ),
+      #(
+        "lib/z_definition.ex",
+        "defmodule Fixture.Definition do\n  defmacro answer do\n    quote do\n      def answer(), do: String.length(\"forty-two\") + 33\n    end\n  end\nend\n",
+      ),
+      #("priv/message.txt", "a private runtime resource"),
+    ])
+  support.write(
+    directory <> "/app/src/main.pooka",
+    "module main\nexternal Library from elixir \"Fixture\" { answer() -> Int }\nmain() { echo Library.answer() }\n",
+  )
+  let env = command.plain(directory <> "/app")
+  let first = support.cli_main(["run"], env)
+  case has_executable("elixir") && has_executable("mix") {
+    False -> {
+      assert first.status == 1
+      assert string.contains(
+        first.stderr,
+        "fixture is an Elixir package; install Elixir to use it",
+      )
+    }
+    True -> {
+      assert first.status == 0
+      assert first.stdout == "42\n"
+      assert support.cli_main(["run"], env).stdout == "42\n"
+      let assert Ok(repeated) = build.build(directory <> "/app")
+      assert repeated.reused
+      support.write(
+        directory <> "/app/src/main.pooka",
+        "module main\nexternal Library from elixir \"Fixture\" { answer() -> Int }\nmain() { echo Library.answer() + 1 }\n",
+      )
+      let assert Ok(changed) = build.build(directory <> "/app")
+      assert changed.compiled_foreign == []
+      support.write(
+        directory <> "/app/src/main.pooka",
+        "module main\nexternal Library from elixir \"Fixture\" { answer() -> Int }\nmain() { echo Library.answer() }\n",
+      )
+      assert simplifile.is_directory(selected.root <> "/_build") == Ok(False)
+      assert simplifile.is_directory(selected.root <> "/deps") == Ok(False)
+      let assert Ok(resource) =
+        simplifile.read(
+          directory <> "/app/build/dev/erlang/fixture/ebin/fixture.app",
+        )
+      assert string.contains(resource, "elixir")
+      assert string.contains(resource, "logger")
+      let assert Ok(exported) = escript.export(directory <> "/app")
+      let executed = execute_escript(exported.path, [], directory)
+      assert executed == #(0, "src/main.pooka:3\n42\n")
+      let assert Ok(shipped) = shipment.export(directory <> "/app")
+      assert simplifile.read(shipped.directory <> "/fixture/priv/message.txt")
+        == Ok("a private runtime resource")
+      assert simplifile.is_file(shipped.directory <> "/elixir/ebin/elixir.app")
+        == Ok(True)
+    }
+  }
+}
+
+pub fn elixir_hex_packages_use_the_already_built_dependency_graph_test() {
+  case has_executable("elixir") && has_executable("mix") {
+    False -> Nil
+    True -> {
+      use directory <- support.with_directory("hex_elixir_dependency_order")
+      use <- with_environment("MIX_HOME", directory <> "/empty-mix-home")
+      use <- with_environment("HEX_HOME", directory <> "/empty-hex-home")
+      let #(helper_bytes, helper_sum) =
+        archive(directory, [
+          #(
+            "src/helper.erl",
+            bit_array.from_string(
+              "-module(helper).\n-export([answer/0]).\nanswer() -> 42.\n",
+            ),
+          ),
+          #(
+            "src/helper.app.src",
+            bit_array.from_string(
+              "{application,helper,[{vsn,\"1.0.0\"},{modules,[]},{applications,[kernel,stdlib]}]}.\n",
+            ),
+          ),
+        ])
+      let #(fixture_bytes, fixture_sum) =
+        archive(directory, [
+          #(
+            "mix.exs",
+            bit_array.from_string(
+              "defmodule Fixture.MixProject do\n  use Mix.Project\n  def project, do: [app: :fixture, version: \"1.0.0\", deps: [{:helper, \"== 1.0.0\"}]]\nend\n",
+            ),
+          ),
+          #(
+            "lib/fixture.ex",
+            bit_array.from_string(
+              "defmodule Fixture do\n  @answer :helper.answer()\n  def answer(), do: @answer\nend\n",
+            ),
+          ),
+        ])
+      let app = directory <> "/app"
+      support.write(
+        app <> "/pooka.toml",
+        "name = \"app\"\nversion = \"1.0.0\"\n[dependencies]\nfixture = \"== 1.0.0\"\n",
+      )
+      support.write(
+        app <> "/src/main.pooka",
+        "module main\nexternal Library from elixir \"Fixture\" { answer() -> Int }\nmain() { echo Library.answer() }\n",
+      )
+      let helper_meta = metadata("helper", "helper", "rebar3", helper_sum)
+      let fixture_meta =
+        metadata("fixture", "fixture", "mix", fixture_sum)
+        |> string.replace(
+          "\"requirements\":{}",
+          "\"requirements\":{\"helper\":{\"app\":\"helper\",\"requirement\":\"== 1.0.0\",\"optional\":false}}",
+        )
+      let fetch = fn(url) {
+        let helper = string.contains(url, "helper")
+        case string.ends_with(url, ".tar"), string.contains(url, "/releases/") {
+          True, _ ->
+            Ok(case helper {
+              True -> helper_bytes
+              False -> fixture_bytes
+            })
+          _, True ->
+            Ok(
+              bit_array.from_string(case helper {
+                True -> helper_meta
+                False -> fixture_meta
+              }),
+            )
+          _, _ ->
+            Ok(bit_array.from_string("{\"releases\":[{\"version\":\"1.0.0\"}]}"))
+        }
+      }
+      let assert Ok(loaded) = project.load(app)
+      let assert Ok(graph) = package.resolve_using(loaded, True, False, fetch)
+      let assert Ok(Nil) = lockfile.write(graph.root, graph.packages)
+      let run = support.cli_main(["run"], command.plain(app))
+      assert run.status == 0
+      assert run.stdout == "42\n"
+      let assert Ok(reused) = build.build(app)
+      assert reused.reused
+    }
+  }
+}
+
+@external(erlang, "incremental_test_ffi", "with_environment")
+fn with_environment(name: String, value: String, run: fn() -> a) -> a

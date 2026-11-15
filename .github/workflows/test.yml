@@ -25,3 +25,20 @@ jobs:
       - run: python3 scripts/check-publish-prompt.py
       - run: gleam test
       - run: gleam format --check src test
+
+  elixir-dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "29"
+          gleam-version: "1.19.0"
+          elixir-version: "1.19"
+          rebar3-version: "3"
+      - run: gleam deps download
+      - run: gleam build
+      - name: Check Elixir packages and portable exports
+        run: >-
+          erl -pa build/dev/erlang/*/ebin -noshell
+          -eval 'case eunit:test([hex_dependencies_test, shipment_test], [verbose, {scale_timeouts, 10}]) of ok -> halt(0); _ -> halt(1) end.'
