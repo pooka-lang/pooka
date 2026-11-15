@@ -13,6 +13,8 @@
 
 ### Performance
 
+- Ignore unrelated shell variables in ordinary build fingerprints while retaining compiler flags, executable resolution and conservative environment tracking for custom native commands and rebar scripts (#23).
+
 - Compile independent generated BEAM modules and native Erlang sources with bounded workers, retaining source-ordered diagnostics and isolated native compiler state (#27).
 
 - Batch native Erlang sources to avoid starting a compiler VM for every module, preserving first-file order, options and source diagnostics (#24).

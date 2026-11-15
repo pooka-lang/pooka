@@ -90,3 +90,28 @@ Open an issue on [GitHub](https://github.com/pooka-lang/pooka/issues). A small p
 ## What licence does Pooka use?
 
 The compiler and the standard library are licensed under [Apache 2.0](https://github.com/pooka-lang/pooka/blob/main/LICENSE).
+
+## Which environment changes invalidate a build?
+
+Ordinary builds track compiler inputs rather than the whole shell environment.
+An editor variable, a logging preference or a Hex credential does not invalidate
+unchanged packages. The fingerprint still includes the compiler's own code,
+OTP version, resolved compiler executables and their contents.
+
+The supported environment inputs are:
+
+| Stage or purpose | Tracked variables |
+| --- | --- |
+| Executable and configuration lookup | `PATH`, `PATHEXT`, `SYSTEMROOT`, `WINDIR`, `COMSPEC`, `HOME`, `USERPROFILE`, `XDG_CONFIG_HOME` |
+| Temporary paths and reproducibility | `TMPDIR`, `TMP`, `TEMP`, `SOURCE_DATE_EPOCH` |
+| Erlang runtime and compiler | `ERL_FLAGS`, `ERL_AFLAGS`, `ERL_ZFLAGS`, `ERL_LIBS`, `ERL_ROOTDIR`, `ROOTDIR`, `BINDIR`, `EMU`, `PROGNAME`, `ERL_COMPILER_OPTIONS` |
+| Other supported BEAM compilers | `ELIXIR_ERL_OPTIONS`, `ELIXIR_ERL_COMPILER_OPTIONS`, `ELIXIR_COMPILER_OPTIONS`, `MIX_ENV`, `MIX_TARGET`, `LFE_COMPILER_OPTIONS`, `LFE_PATH`, `GLEAM_ERLANG_PATH`, `GLEAM_TARGET` |
+
+Variable names are compared without case sensitivity for Windows compatibility.
+These toolchain settings are tracked conservatively across ordinary stages.
+
+A custom `[native.*]` build command or `rebar.config.script` can read arbitrary
+environment values. For those packages, Pooka keeps a conservative full-environment
+fingerprint, excluding transient shell bookkeeping (`_`, `SHLVL`, `PWD`, `OLDPWD`).
+Their dependants follow the changed package key; unrelated packages can still reuse
+their artifacts. This avoids silently reusing outputs from an opaque build command.

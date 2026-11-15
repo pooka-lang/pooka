@@ -13,11 +13,17 @@
 
 import builder/build
 import builder/layout
+import builder/stamp
 import cli/command
 import compiler/codegen/beam
 import filepath
 import gleam/list
+import gleam/option.{None}
 import gleam/string
+import project/dependency
+import project/native_component
+import project/package
+import project/project
 import simplifile
 import support
 
@@ -470,4 +476,72 @@ pub fn installed_compiler_escript_is_part_of_the_build_identity_test() {
   assert enclosing_archive(directory <> "/bin/pooka/nested/module")
     == Ok(directory <> "/bin/pooka")
   assert enclosing_archive(directory <> "/bin") == Error(Nil)
+}
+
+@external(erlang, "pooka_incremental_ffi", "fingerprinted_environment")
+fn fingerprinted_environment(
+  entries: List(String),
+  conservative: Bool,
+) -> List(String)
+
+pub fn unrelated_environment_changes_do_not_recompile_ordinary_packages_test() {
+  use directory <- support.with_directory("incremental_unrelated_environment")
+  setup(directory)
+  let assert Ok(first) = build.build(directory)
+  let original = binaries(first)
+  list.each(["POOKA_UNRELATED_EXAMPLE", "HEX_API_KEY", "EDITOR"], fn(name) {
+    with_environment(name, "unrelated-test-value", fn() {
+      let assert Ok(warm) = build.build(directory)
+      assert warm.reused
+      assert warm.compiled == []
+      assert binaries(warm) == original
+    })
+  })
+}
+
+pub fn compiler_environment_contract_preserves_flags_and_opaque_inputs_test() {
+  let inputs = [
+    "PATH=/tools",
+    "ERL_COMPILER_OPTIONS=[debug_info]",
+    "EDITOR=zed",
+    "CUSTOM_SETTING=one",
+    "SHLVL=2",
+  ]
+  assert fingerprinted_environment(inputs, False)
+    == ["ERL_COMPILER_OPTIONS=[debug_info]", "PATH=/tools"]
+  assert fingerprinted_environment(inputs, True)
+    == [
+      "CUSTOM_SETTING=one",
+      "EDITOR=zed",
+      "ERL_COMPILER_OPTIONS=[debug_info]",
+      "PATH=/tools",
+    ]
+  assert fingerprinted_environment(
+      ["Path=C:/tools", "SystemRoot=C:/Windows"],
+      False,
+    )
+    == ["Path=C:/tools", "SystemRoot=C:/Windows"]
+  assert fingerprinted_environment(["CUSTOM_SETTING=one"], True)
+    != fingerprinted_environment(["CUSTOM_SETTING=two"], True)
+}
+
+pub fn custom_native_commands_and_rebar_scripts_keep_environment_invalidation_test() {
+  use directory <- support.with_directory("incremental_opaque_environment")
+  setup(directory)
+  let assert Ok(loaded) = project.load(directory)
+  support.write(directory <> "/rebar.config.script", "CONFIG.\n")
+  let native_project =
+    project.Project(..loaded, natives: [
+      native_component.NativeComponent("sample", "make", None),
+    ])
+  let script_project =
+    project.Project(..loaded, kind: dependency.Beam("app", ["rebar3"]))
+  list.each([native_project, script_project], fn(owner) {
+    let graph = package.Graph(owner, [owner])
+    let assert Ok(before) = stamp.snapshot(graph, "dev")
+    with_environment("CUSTOM_BUILD_INPUT", "changed", fn() {
+      let assert Ok(after) = stamp.snapshot(graph, "dev")
+      assert before != after
+    })
+  })
 }
