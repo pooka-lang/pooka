@@ -7,8 +7,6 @@
 - Compile Elixir Hex dependencies with Mix using Pooka's resolved dependency graph, and explain when Elixir is missing (#45).
 - Preserve native private resources through cached builds and exports, including Elixir runtime applications declared in package metadata.
 
-## Unreleased
-
 ### Bug fixes
 
 - Keep variables from evaluated bindings monomorphic so one allocated mailbox or storage capability cannot be used with incompatible types; retain polymorphism for syntactic values and fresh factories.
