@@ -238,6 +238,7 @@ fn imported_name(parser: Parser) -> Parsed(ast.ImportedName) {
   let start = state.current(parser)
   use #(#(name, alias_what), parser) <- result.try(case start.token {
     token.Name(name) -> Ok(#(#(name, LowerAlias), state.skip(parser)))
+    token.New -> Ok(#(#("new", LowerAlias), state.skip(parser)))
     token.UpperName(name) -> Ok(#(#(name, UpperAlias), state.skip(parser)))
     _ -> Error(state.name_error(start, parse_error.ExpectImportedName))
   })
@@ -246,7 +247,7 @@ fn imported_name(parser: Parser) -> Parsed(ast.ImportedName) {
     True -> {
       let parser = state.skip(parser)
       use #(#(alias, span), parser) <- result.try(case alias_what {
-        LowerAlias -> state.expect_name(parser, "a new name")
+        LowerAlias -> state.expect_function_name(parser, "a new name")
         UpperAlias -> state.expect_upper_name(parser, "a new name")
       })
       Ok(#(Some(ast.Name(name: alias, span:)), parser))
@@ -329,7 +330,7 @@ fn declaration(
       ))
       Ok(#(ast.TestDeclaration(test_), parser))
     }
-    token.Name(_), token.LeftParen -> {
+    token.Name(_), token.LeftParen | token.New, token.LeftParen -> {
       use #(function, parser) <- result.try(parse_declaration.parse_function(
         parser,
         documentation,
@@ -389,7 +390,8 @@ fn starts_declaration(next: token.Token) -> Bool {
     | token.Actor
     | token.External
     | token.Fn
-    | token.Name(_) -> True
+    | token.Name(_)
+    | token.New -> True
     _ -> False
   }
 }

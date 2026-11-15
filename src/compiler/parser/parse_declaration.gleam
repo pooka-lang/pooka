@@ -37,7 +37,7 @@ pub fn parse_function(
   documentation: List(String),
 ) -> Parsed(ast.Function) {
   let start = state.current(parser)
-  use #(#(name, name_span), parser) <- result.try(state.expect_name(
+  use #(#(name, name_span), parser) <- result.try(state.expect_function_name(
     parser,
     "a function name",
   ))
