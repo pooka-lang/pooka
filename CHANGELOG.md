@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Guide interactive Hex publication with hidden, per-invocation API keys, bounded authentication retries and explicit verification prompts, preserving completed upload stages and non-interactive CI behaviour (#33).
+
 ### Performance
 
 - Compile independent generated BEAM modules and native Erlang sources with bounded workers, retaining source-ordered diagnostics and isolated native compiler state (#27).

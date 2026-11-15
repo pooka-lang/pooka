@@ -190,7 +190,7 @@ Prepares your package and its documentation, shows you what will be uploaded, th
 | `--replace` | Replace a release you just published, within Hex's replacement window |
 | `--docs-only` | Upload only the documentation, for a release that already exists |
 
-Credentials come from `HEX_API_KEY` or `HEXPM_API_KEY`. If Hex asks for a two-factor code, set `HEX_OTP`.
+Credentials come from the first nonempty `HEX_API_KEY` or `HEXPM_API_KEY`. Interactive publication prompts for a hidden, per-invocation key when neither is configured, and offers one retry for rejected authentication. Explicit verification challenges can use a hidden code prompt or `HEX_OTP`. `--yes` never starts credential prompts; scripts and CI must configure environment credentials.
 
 ## pooka clean
 

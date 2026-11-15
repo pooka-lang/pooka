@@ -347,7 +347,7 @@ fn details(name: String, rest: List(String)) -> Result(#(String, String), Nil) {
     "publish", [] ->
       Ok(#(
         " [options]",
-        "Prepare and publish a portable package and its documentation to Hex.\n\n  --dry-run    Build archives and preview files without uploading\n  --yes        Confirm publication without a prompt\n  --replace    Replace a release within Hex's replacement window\n  --docs-only  Upload documentation without publishing the package again\n\nCredentials: HEX_API_KEY or HEXPM_API_KEY; set HEX_OTP if Hex requests 2FA.\n\n",
+        "Prepare and publish a portable package and its documentation to Hex.\n\n  --dry-run    Build archives and preview files without uploading\n  --yes        Confirm publication without a prompt\n  --replace    Replace a release within Hex's replacement window\n  --docs-only  Upload documentation without publishing the package again\n\nInteractive publication asks for a hidden API key when none is configured.\nCredentials: HEX_API_KEY or HEXPM_API_KEY; set HEX_OTP if Hex requests verification.\n--yes never prompts for credentials; configure them in the environment.\n\n",
       ))
     "clean", [] -> Ok(#("", "Remove project build artifacts.\n\n"))
     _, _ -> Error(Nil)
