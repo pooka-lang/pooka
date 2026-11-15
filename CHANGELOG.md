@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Bug fixes
+
+- Keep variables from evaluated bindings monomorphic so one allocated mailbox or storage capability cannot be used with incompatible types; retain polymorphism for syntactic values and fresh factories.
+
 ### Documentation
 
 - Use pooka.run for documentation and installation links; remove the repository documentation directory and the README language example.

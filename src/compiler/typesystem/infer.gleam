@@ -2442,6 +2442,17 @@ fn binding_statement(
       state:,
       diagnostics: list.append(bound.diagnostics, primitive_errors),
     )
+  // An evaluated call may allocate a mailbox, reference or other stateful
+  // capability. Quantifying its fresh variables would let one runtime cell
+  // acquire a different protocol at each use. Syntactic values can still be
+  // polymorphic: lambdas allocate their effects anew when invoked.
+  let generalization_context = case non_expansive(value) {
+    True -> generalization_environment(environment, context)
+    False -> [
+      scheme.monomorphic(unify.apply(found.type_, bound.state)),
+      ..generalization_environment(environment, context)
+    ]
+  }
   let locals =
     list.fold(
       ast.pattern_bindings(pattern),
@@ -2459,11 +2470,7 @@ fn binding_statement(
             let generalized = case diagnostic.has_errors(primitive_errors) {
               True -> scheme.monomorphic(monotype.ErrorType)
               False ->
-                scheme.generalize(
-                  type_,
-                  generalization_environment(environment, context),
-                  bound.state,
-                )
+                scheme.generalize(type_, generalization_context, bound.state)
             }
             dict.insert(locals, name.name, Binding(generalized, name.span))
           }
@@ -4555,4 +4562,35 @@ fn alternative_binding_error(
   |> diagnostic.conclusion(
     "Every alternative must bind the same names with compatible types before sharing a guard and body.",
   )
+}
+
+/// A reusable value may be generalized; an expression which runs code may
+/// capture one freshly allocated cell and must keep that cell's type fixed.
+///
+/// ```pooka
+/// let identity = fn(value) { value } // polymorphic function
+/// let inbox = new_subject()         // one mailbox, one protocol
+/// let factory = fn() { new_subject() } // each call makes a fresh mailbox
+/// ```
+fn non_expansive(value: ast.Expression) -> Bool {
+  case value {
+    ast.IntLiteral(..)
+    | ast.FloatLiteral(..)
+    | ast.StringLiteral(..)
+    | ast.BoolLiteral(..)
+    | ast.NilLiteral(..)
+    | ast.Variable(..)
+    | ast.TypeName(..)
+    | ast.AnonymousFunction(..) -> True
+    ast.ListExpression(values, _) | ast.TupleExpression(values, _) ->
+      list.all(values, non_expansive)
+    ast.ListSpread(values, tail, _) ->
+      list.all(values, non_expansive) && non_expansive(tail)
+    ast.FieldAccess(subject, _, _) | ast.TupleAccess(subject, _, _, _) ->
+      non_expansive(subject)
+    ast.Call(ast.TypeName(name, _), arguments, _) ->
+      list.contains(["Some", "Ok", "Error"], name)
+      && list.all(arguments, non_expansive)
+    _ -> False
+  }
 }
