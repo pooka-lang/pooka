@@ -6,7 +6,8 @@ test_name: interface_dispatch_abstract_forms_snapshot_test
 ---
 -module(pooka@app@main).
 -file("src/main.pooka", 1).
--export(['$interface@call'/3,
+-export([-pooka_class_layout([{pooka@class@main@User, 'User', 0, false}]).
+'$interface@call'/3,
          render/1,
          main/0,
          '$class@User@new'/0,
