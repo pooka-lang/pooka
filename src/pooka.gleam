@@ -12,7 +12,7 @@
 
 import cli/cli
 
-pub const version = "0.3.0"
+pub const version = "0.3.1"
 
 pub fn main() -> Nil {
   cli.cli(version)

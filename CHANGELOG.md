@@ -1,14 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.3.1
 
 ### Fixed
 
+- Resolve `pooka run -m <package>` to the package entry point, ignoring modules without a zero-argument `main()` and preserving explicit module selectors.
 - Compile Elixir Hex dependencies with Mix using Pooka's resolved dependency graph, and explain when Elixir is missing (#45).
 - Preserve native private resources through cached builds and exports, including Elixir runtime applications declared in package metadata.
-
-### Bug fixes
-
+- Compile root-project foreign test helpers from `test/ffi` during development builds, keeping them out of dependency builds and production exports.
 - Keep variables from evaluated bindings monomorphic so one allocated mailbox or storage capability cannot be used with incompatible types; retain polymorphism for syntactic values and fresh factories.
 
 ### Documentation
