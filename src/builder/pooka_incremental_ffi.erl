@@ -10,7 +10,7 @@
 %%% ```
 
 -module(pooka_incremental_ffi).
--export([snapshot/2, read_report/3, write_report/4, foreign/3, native/5, digest/1, enclosing_archive/1]).
+-export([snapshot/2, read_report/3, write_report/4, foreign/3, native/5, digest/1, enclosing_archive/1, fingerprinted_environment/2]).
 -include_lib("kernel/include/file.hrl").
 
 %% Hash the package inputs used to decide whether its prior build can be reused.
@@ -24,7 +24,7 @@ snapshot({graph,Root,Packages},Mode) ->
             Paths = inputs(P,IsRoot andalso Mode =:= <<"dev">>,Applications),
             Paths
         end,Projects),
-        Own = maps:map(fun(Name,P) -> digest({P,Mode,Toolchain,maps:get(Name,InputSets)}) end,Projects),
+        Own = maps:map(fun(Name,P) -> digest({P,Mode,Toolchain,project_environment(P),maps:get(Name,InputSets)}) end,Projects),
         
         
         KeyMap = lists:foldl(fun(P,Acc) ->
@@ -34,7 +34,7 @@ snapshot({graph,Root,Packages},Mode) ->
             maps:put(Name,digest({maps:get(Name,Own),Children}),Acc)
         end,#{},Packages),
         Keys = lists:sort(maps:to_list(KeyMap)),
-        Foreign = [{Name,digest({P,Mode,Toolchain,
+        Foreign = [{Name,digest({P,Mode,Toolchain,project_environment(P),
             [F || F={Path,_,_} <- maps:get(Name,InputSets), foreign_input(P,Path)],
             [{element(2,D),proplists:get_value(element(2,D),Keys)} || D <- element(5,P),maps:is_key(element(2,D),Projects)]})}
             || {Name,P} <- lists:sort(maps:to_list(Projects))],
@@ -227,10 +227,39 @@ toolchain() ->
     Beams = compiler_beams(),
     
     
-    Env = lists:sort([E || E <- os:getenv(),not volatile_environment(E)]),
+    Env = fingerprinted_environment(os:getenv(), false),
     Tools = [{P,executable(P)} || P <- ["gleam","erl","erlc","elixirc","lfec"]],
     digest({erlang:system_info(otp_release),erlang:system_info(version),
             compile:module_info(md5),Beams,Env,Tools}).
+
+%% Ordinary compiler stages have a defined environment contract. Shell/editor
+%% metadata and credentials do not change emitted code. Opaque user commands
+%% and rebar scripts may read anything, so keep their conservative full key.
+project_environment(P) ->
+    Root = chars(element(2, P)),
+    Opaque = element(9, P) =/= [] orelse
+        filelib:is_regular(filename:join(Root, "rebar.config.script")),
+    case Opaque of
+        true -> fingerprinted_environment(os:getenv(), true);
+        false -> []
+    end.
+
+%% This pure policy is also used by tests with invented environment values;
+%% no test needs to collect the author's real environment or credentials.
+fingerprinted_environment(Entries, Opaque) ->
+    lists:sort([unicode:characters_to_binary(E) || E <- Entries,
+        relevant_environment(chars(E), Opaque)]).
+
+relevant_environment(Entry, true) -> not volatile_environment(Entry);
+relevant_environment(Entry, false) ->
+    Name = string:uppercase(lists:takewhile(fun(C) -> C =/= $= end, Entry)),
+    lists:member(Name, ["PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC",
+        "HOME", "USERPROFILE", "XDG_CONFIG_HOME", "TMPDIR", "TMP", "TEMP",
+        "ERL_FLAGS", "ERL_AFLAGS", "ERL_ZFLAGS", "ERL_LIBS", "ERL_ROOTDIR",
+        "ROOTDIR", "BINDIR", "EMU", "PROGNAME", "ERL_COMPILER_OPTIONS",
+        "ELIXIR_ERL_OPTIONS", "ELIXIR_ERL_COMPILER_OPTIONS", "ELIXIR_COMPILER_OPTIONS",
+        "MIX_ENV", "MIX_TARGET", "LFE_COMPILER_OPTIONS", "LFE_PATH",
+        "GLEAM_ERLANG_PATH", "GLEAM_TARGET", "SOURCE_DATE_EPOCH"]).
 
 volatile_environment(E) ->
     lists:any(fun(Prefix) -> lists:prefix(Prefix,E) end,["_=","SHLVL=","PWD=","OLDPWD="]).
