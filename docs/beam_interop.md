@@ -244,3 +244,22 @@ user-facing traces omit the package's private runtime frames.
 
 Older compiled code may still raise `{pooka_panic, Message}` without source
 metadata. The runtime keeps support for describing that legacy shape.
+
+## Native dependency configuration
+
+Pooka evaluates a dependency's `rebar.config.script` with Rebar's `CONFIG` and
+`SCRIPT` bindings. The script runs in a separate Erlang VM, with the dependency
+as its working directory and a 30-second timeout. Its result must be a list of
+configuration entries. Returned options and generated sources participate in
+incremental input checks; a changed script result invalidates the build.
+
+A dependency's `project_plugins` and hooks for development commands such as
+`eunit`, `ct`, documentation and linting are not run. Compile hooks, unknown hook
+targets, compilation plugins, overrides and native port configuration remain
+unsupported and receive explicit errors. A `c_src` directory still requires a
+native build path; accepting a configuration script does not enable NIF builds.
+
+Configuration scripts can run arbitrary Erlang code, like ordinary Rebar scripts.
+They may be evaluated more than once while checking build inputs and compiling,
+so keep side effects idempotent. Isolation protects compiler state; it is not a
+sandbox for untrusted package code.

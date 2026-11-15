@@ -52,6 +52,12 @@ foreign_input(P,Path) ->
 %% Generated output is not a source substitute.
 inputs(P,Tests,Applications) ->
     Root = chars(element(2,P)),
+    %% Evaluate dynamic configuration before reading source trees: a script may
+    %% generate sources or choose include paths. Its returned value is an input.
+    {ExtraDirs,Defines,ResolvedConfig} = case element(8,P) of
+        {beam,_,_} -> include_options(Root);
+        pooka -> {[],[],[]}
+    end,
     Directories = ["src","ffi","include","priv"] ++ case Tests of true -> ["test"]; false -> [] end,
     Config = ["pooka.toml","gleam.toml","rebar.config","rebar.config.script","mix.exs","manifest.toml"],
     Files = lists:append([tree(filename:join(Root,D)) || D <- Directories]) ++
@@ -59,19 +65,17 @@ inputs(P,Tests,Applications) ->
             lists:append([tree(filename:join(Root,C)) || C <- Config]),
     
     
-    {ExtraDirs,Defines} = case element(8,P) of {beam,_,_} -> include_options(Root); pooka -> {[],[]} end,
     IncludeDirs = [filename:join(Root,"include"),filename:join(Root,"src")] ++ ExtraDirs,
     Includes = lists:append([erlang_includes(chars(Path),IncludeDirs,Defines,Applications) || {Path,_,_} <- Files,
                             filename:extension(chars(Path)) =:= ".erl"]),
-    lists:usort(Files ++ Includes).
+    lists:usort(Files ++ Includes ++ [{unicode:characters_to_binary(filename:join(Root, "$resolved_rebar_config")), configuration, digest(ResolvedConfig)}]).
 
 include_options(Root) ->
-    case file:consult(filename:join(Root,"rebar.config")) of
+    case pooka_package_ffi:rebar_config(unicode:characters_to_binary(Root)) of
         {ok,Config} ->
             Options = proplists:get_value(erl_opts,Config,[]),
             {[filename:absname(Path,Root) || {i,Path} <- Options],
-             lists:append([case O of {d,N} -> [N]; {d,N,V} -> [{N,V}]; _ -> [] end || O <- Options])};
-        {error,enoent} -> {[],[]};
+             lists:append([case O of {d,N} -> [N]; {d,N,V} -> [{N,V}]; _ -> [] end || O <- Options]), Config};
         _ -> erlang:error(invalid_rebar_config)
     end.
 
