@@ -1,0 +1,9 @@
+---
+version: 2.0.2
+title: publishing rejected key guidance
+---
+error: publication failed
+
+Hex rejected [redacted]: API key revoked.
+Create a new publishing key and update HEX_API_KEY (or HEXPM_API_KEY).
+

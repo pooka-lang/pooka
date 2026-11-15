@@ -22,4 +22,5 @@ jobs:
       - run: node --test scripts/release-assets.test.mjs scripts/doc-versions.test.mjs
       - run: sh -n install.sh
       - run: gleam test
+      - run: python3 scripts/check-publish-prompt.py
       - run: gleam format --check src test
