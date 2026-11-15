@@ -4,6 +4,8 @@
 
 ### Added
 
+- Evaluate rebar configuration scripts in an isolated VM and ignore dependency development-only plugins and hooks, while rejecting unsupported compilation hooks and native build steps (#19).
+
 - Warn when non-final expression statements discard a Result, while keeping explicit discards and returned values quiet (#15).
 - Warn before publishing production code that uses the echo builtin, including cached builds and non-interactive publication, without rejecting intentional debug output (#21).
 

@@ -11,7 +11,7 @@
 %%% ```
 
 -module(pooka_package_ffi).
--export([canonical/1, canonical_relative/2, download_name/1, write_atomic/2, git_url/2, git_checkout/5, http_get/1, hex_unpack/3, hex_cached/2, native_build/6, stage_library/4, native_directory/1, using_directory/2, repository_identity/1]).
+-export([canonical/1, canonical_relative/2, download_name/1, write_atomic/2, git_url/2, git_checkout/5, http_get/1, hex_unpack/3, hex_cached/2, native_build/6, stage_library/4, native_directory/1, using_directory/2, repository_identity/1, rebar_config/1]).
 %% Resolve against the declaring package with the host's filename rules.
 %% A Windows drive or UNC root must replace Owner, rather than become a child
 %% of it. filename:absname/2 also preserves drive-relative path semantics.
@@ -165,14 +165,14 @@ run_tool(Program,Directory,Arguments,Timeout) ->
         Executable ->
             Port = open_port({spawn_executable,Executable},[binary,exit_status,stderr_to_stdout,
                 {cd,Directory},{env,[{"GIT_TERMINAL_PROMPT","0"}]},{args,Arguments}]),
-            tool_output(Port,[],Program,Timeout)
+            tool_output(Port,[],Program,erlang:monotonic_time(millisecond)+Timeout)
     end.
-tool_output(Port,Parts,Program,Timeout) ->
+tool_output(Port,Parts,Program,Deadline) ->
     receive
-        {Port,{data,Data}} -> tool_output(Port,[Data|Parts],Program,Timeout);
+        {Port,{data,Data}} -> tool_output(Port,[Data|Parts],Program,Deadline);
         {Port,{exit_status,0}} -> iolist_to_binary(lists:reverse(Parts));
         {Port,{exit_status,Status}} -> package_fail(io_lib:format("~ts failed (status ~p): ~ts",[Program,Status,iolist_to_binary(lists:reverse(Parts))]))
-    after Timeout -> port_close(Port),package_fail([Program," timed out"]) end.
+    after max(0,Deadline-erlang:monotonic_time(millisecond)) -> port_close(Port),package_fail([Program," timed out"]) end.
 
 http_get(URLBinary) ->
     URL=unicode:characters_to_list(URLBinary),
@@ -325,16 +325,17 @@ native_build(RootBinary,LibraryBinary,NameBinary,AppBinary,VersionBinary,ToolBin
                 run_tool("gleam",Root,["compile-package","--target","erlang","--package",Root,"--out",Output,"--lib",Library]),
                 remove_generated_erlang(Output);
             false ->
-                case filelib:is_dir(filename:join(Root,"c_src")) orelse filelib:is_file(filename:join(Root,"rebar.config.script")) of
+                case filelib:is_dir(filename:join(Root,"c_src")) of
                     true -> package_fail("Native packages requiring NIF/build scripts are not supported yet");
                     false -> ok
                 end,
+                Config = case rebar_config(RootBinary) of
+                    {ok, Terms} -> Terms;
+                    {error, Problem} -> package_fail(Problem)
+                end,
+                validate_native_config(Config),
                 Files = lists:sort(filelib:fold_files(filename:join(Root,"src"),".*\\.erl$",true,fun(File,Acc) -> [File|Acc] end,[])),
                 case Files of [] -> package_fail("Native package has no Erlang sources and is not a Gleam package"); _ -> ok end,
-                Config = case file:consult(filename:join(Root,"rebar.config")) of {ok,C} -> C; {error,enoent} -> []; {error,R} -> package_fail(io_lib:format("Invalid rebar.config: ~tp",[R])) end,
-                case lists:any(fun(Key) -> proplists:is_defined(Key,Config) end,[plugins,project_plugins,pre_hooks,post_hooks,provider_hooks,overrides]) of
-                    true -> package_fail("Native package requires unsupported rebar hooks/plugins/overrides"); false -> ok
-                end,
                 Options = [{outdir,Ebin},{i,filename:join(Root,"include")},
                     {i,filename:join(Root,"src")}] ++
                     [native_option(Option,Root) || Option <- proplists:get_value(erl_opts,Config,[])],
@@ -381,6 +382,66 @@ compile_erlang_package(Root,Library,App,CodeArgs,First,Remaining,Options) ->
     Timeout = 60000 * max(1,(length(First)+length(Remaining)+31) div 32),
     _ = run_tool("erl",Root,CodeArgs ++ ["-pa",Library,"-noshell","-s",
         "pooka_native_compile_ffi","main","-extra",Plan],Timeout),ok.
+
+%% CONFIG and SCRIPT follow Rebar's file:script/2 contract. Never change the
+%% compiler VM's cwd or execute arbitrary package code in its process.
+%% https://rebar3.org/docs/configuration/config_script/
+rebar_config(RootBinary) ->
+    Root = unicode:characters_to_list(RootBinary),
+    try
+        case filelib:is_regular(filename:join(Root, "rebar.config.script")) of
+            false -> case file:consult(filename:join(Root, "rebar.config")) of
+                {ok, Config} -> {ok, Config};
+                {error, enoent} -> {ok, []};
+                {error, Error} -> {error, unicode:characters_to_binary(io_lib:format("Invalid rebar.config: ~tp", [Error]))}
+            end;
+            true ->
+                Cache = filename:basedir(user_cache, "pooka"),
+                ok = filelib:ensure_dir(filename:join(Cache, "placeholder")),
+                Temporary = fresh_directory(Cache, ".rebar-config"),
+                try
+                    {pooka_rebar_config_ffi, Beam, _} = code:get_object_code(pooka_rebar_config_ffi),
+                    ok = file:write_file(filename:join(Temporary, "pooka_rebar_config_ffi.beam"), Beam),
+                    Output = filename:join(Temporary, "result.term"),
+                    _ = run_tool("erl", Root, ["+S", "1:1", "+A", "1", "-pa", Temporary,
+                        "-noshell", "-s", "pooka_rebar_config_ffi", "main", "-extra", Output], 30000),
+                    {ok, Result} = file:read_file(Output),
+                    binary_to_term(Result)
+                after file:del_dir_r(Temporary) end
+        end
+    catch throw:{package_error, Message} -> {error, Message};
+        _:_ -> {error, <<"Could not evaluate rebar.config.script in an isolated Erlang VM">>}
+    end.
+
+%% Development providers are not run when compiling a dependency. Compile
+%% hooks and unknown hook targets remain unsupported rather than being skipped.
+validate_native_config(Config) ->
+    case lists:all(fun({Key, _}) when is_atom(Key) -> true; (_) -> false end, Config) of
+        true -> ok;
+        false -> package_fail("rebar configuration must contain key/value tuples")
+    end,
+    case lists:any(fun(Key) -> proplists:get_value(Key, Config, []) =/= [] end,
+            [plugins, overrides, port_specs, port_env, pc_port_specs, pc_port_env]) of
+        true -> package_fail("Native package requires unsupported compilation plugins, overrides or native build configuration");
+        false -> ok
+    end,
+    Hooks = proplists:get_value(pre_hooks, Config, []) ++ proplists:get_value(post_hooks, Config, []),
+    Providers = proplists:get_value(provider_hooks, Config, []),
+    case lists:any(fun build_hook/1, Hooks) orelse
+            lists:any(fun({Phase, Entries}) when Phase =:= pre; Phase =:= post ->
+                lists:any(fun build_hook/1, Entries);
+                (_) -> true
+            end, Providers) of
+        true -> package_fail("Native package requires unsupported compilation hooks");
+        false -> ok
+    end.
+
+build_hook({Command, _}) -> not development_command(Command);
+build_hook({_, Command, _}) -> not development_command(Command);
+build_hook(_) -> true.
+development_command(Command) ->
+    lists:member(Command, [eunit, ct, cover, dialyzer, edoc, ex_doc, lint,
+        clean, escriptize, release, shell, xref, fmt, format]).
 
 native_option({i,Path},Root) -> {i,filename:absname(Path,Root)};
 native_option(Option,_) -> Option.
