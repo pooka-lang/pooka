@@ -10,6 +10,8 @@
 
 ### Bug fixes
 
+- Generate API documentation only for the current package, keeping dependency modules and internal `$package` paths out of its pages and navigation.
+
 - Read published native application resources when no `.app.src` exists, preserving metadata and diagnosing invalid resources clearly (#17).
 - Reject classes, actors, interfaces and enums that reuse built-in type names, pointing to the declaration before misleading type errors appear (#13).
 

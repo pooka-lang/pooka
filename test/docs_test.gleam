@@ -407,3 +407,75 @@ pub fn authors_are_credited_on_the_overview_test() {
   let assert Ok(index) = simplifile.read(report.directory <> "/index.html")
   assert !string.contains(index, "package-authors\">")
 }
+
+fn project_with_dependencies(directory: String) {
+  support.write(
+    directory <> "/pooka.toml",
+    "name = \"library\"\nversion = \"1.0.0\"\n[dependencies]\nhelper = { path = \"dependencies/helper\" }\n",
+  )
+  support.write(
+    directory <> "/src/library.pooka",
+    "module library\nimport helper/value\nanswer() -> Int { value.answer() }\n",
+  )
+  support.write(
+    directory <> "/src/nested/own.pooka",
+    "module own\nidentity(value) { value }\n",
+  )
+  support.write(
+    directory <> "/dependencies/helper/pooka.toml",
+    "name = \"helper\"\nversion = \"1.0.0\"\n[dependencies]\nleaf = { path = \"../leaf\" }\n",
+  )
+  support.write(
+    directory <> "/dependencies/helper/src/helper/value.pooka",
+    "module value\nimport leaf/number\nanswer() { number.answer() }\n",
+  )
+  support.write(
+    directory <> "/dependencies/leaf/pooka.toml",
+    "name = \"leaf\"\nversion = \"1.0.0\"\n",
+  )
+  support.write(
+    directory <> "/dependencies/leaf/src/leaf/number.pooka",
+    "module number\nanswer() { 42 }\n",
+  )
+}
+
+// Dependencies help us read the manuscript; they do not belong in its table
+// of contents. Keep both direct and transitive neighbours out of every page.
+pub fn documentation_only_includes_the_root_packages_modules_test() {
+  use directory <- support.with_directory("docs_package_ownership")
+  project_with_dependencies(directory)
+  let destination = directory <> "/build/dev/docs/library"
+  let stale = destination <> "/module-$package@helper@helper@value.html"
+  support.write(stale, "An old dependency page.")
+  let assert Ok(report) = docs.generate(directory)
+  assert report.modules == 2
+  let assert Ok(files) = simplifile.read_directory(report.directory)
+  assert list.contains(files, "module-library.html")
+  assert list.contains(files, "module-nested@own.html")
+  assert !list.any(files, fn(file) { string.contains(file, "$package") })
+  assert simplifile.is_file(stale) == Ok(False)
+  list.each(
+    ["index.html", "module-library.html", "module-nested@own.html"],
+    fn(name) {
+      let assert Ok(html) = simplifile.read(report.directory <> "/" <> name)
+      assert !string.contains(html, "$package")
+      assert !string.contains(html, "module-helper")
+      assert !string.contains(html, "module-leaf")
+      assert string.contains(html, "module-nested@own.html")
+    },
+  )
+  let assert Ok(library) =
+    simplifile.read(report.directory <> "/module-library.html")
+  assert string.contains(library, "fn() -&gt; Int")
+}
+
+pub fn documentation_still_typechecks_dependency_uses_test() {
+  use directory <- support.with_directory("docs_dependency_typecheck")
+  project_with_dependencies(directory)
+  support.write(
+    directory <> "/dependencies/leaf/src/leaf/number.pooka",
+    "module number\nanswer() { \"not an integer\" }\n",
+  )
+  let assert Error(failure) = docs.generate(directory)
+  assert failure.diagnostics != []
+}

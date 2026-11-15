@@ -19,6 +19,7 @@ import gleam/list
 import gleam/result
 import gleam/string
 import project/config
+import project/package
 import project/project_error
 import simplifile
 import tools/docgen/extractor
@@ -68,7 +69,12 @@ pub fn generate(directory: String) -> Result(Report, build.Failure) {
   })
   let modules =
     checked.files
-    |> list.filter(fn(f) { string.starts_with(f.path, "src/") })
+    // Neighbours lend their types to inference, but only this package owns
+    // these documentation pages. Dependency sources also live under src/.
+    |> list.filter(fn(file) {
+      string.starts_with(file.path, "src/")
+      && package.owner(file.path, checked.project.name) == checked.project.name
+    })
     |> list.filter_map(fn(file) {
       use typed <- result.try(
         list.find(inferred.modules, fn(m) { m.path == file.path }),
