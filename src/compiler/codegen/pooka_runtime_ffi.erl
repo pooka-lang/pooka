@@ -101,7 +101,10 @@ inspect_value(V,D) when is_tuple(V) ->
         [Tag|Fields] when is_atom(Tag) ->
             case string:prefix(atom_to_list(Tag),"pooka@class@") of
                 nomatch -> ["#(",join_values(tuple_to_list(V),D+1),")"];
-                _ -> [lists:last(string:split(atom_to_list(Tag),"@",all)),"(",join_values(Fields,D+1),")"]
+                _ -> case class_values(V, [], 0) of
+                    {ok, Name, Values} -> [atom_to_list(Name), "(", join_values(Values,D+1), ")"];
+                    error -> [lists:last(string:split(atom_to_list(Tag),"@",all)),"(",join_values(Fields,D+1),")"]
+                end
             end;
         Fields -> ["#(",join_values(Fields,D+1),")"]
     end;
@@ -110,6 +113,43 @@ inspect_value(V,D) when is_map(V) ->
 inspect_value(V,_) when is_function(V) -> {arity,N}=erlang:fun_info(V,arity),["fn(",lists:join(", ",lists:duplicate(N,"_")),") { ... }"];
 inspect_value(V,_) when is_atom(V) -> atom_to_list(V);
 inspect_value(V,_) -> io_lib:format("~tp",[V]).
+%% Follow only extension slots declared by checked layout metadata. An ordinary
+%% last field may itself be Nil or another class, and must never be dropped.
+%% Collect field chunks root-first, then render the most-derived class name.
+class_values(Value, Chunks, Depth) when is_tuple(Value), tuple_size(Value) > 0, Depth < 128 ->
+    [Tag | Fields] = tuple_to_list(Value),
+    case class_description(Tag) of
+        {ok, Name, Count, false} when length(Fields) =:= Count ->
+            {ok, Name, lists:append(lists:reverse([Fields | Chunks]))};
+        {ok, Name, Count, true} when length(Fields) =:= Count + 1 ->
+            {Own, [Extension]} = lists:split(Count, Fields),
+            case Extension of
+                nil -> {ok, Name, lists:append(lists:reverse([Own | Chunks]))};
+                _ -> class_values(Extension, [Own | Chunks], Depth + 1)
+            end;
+        _ -> error
+    end;
+class_values(_, _, _) -> error.
+
+%% The tag carries a source module identity. Resolve it in this runtime's
+%% package namespace without creating atoms from untrusted foreign values.
+%% Layout attributes are data; inspecting a class does not call user methods.
+class_description(Tag) when is_atom(Tag) ->
+    try
+        ["pooka", "class", Identity, _] = string:split(atom_to_list(Tag), "@", all),
+        ["pooka", Package | _] = string:split(atom_to_list(?MODULE), "@", all),
+        {Owner, Segments} = case string:split(Identity, "/", all) of
+            ["$package", Dependency | Rest] -> {Dependency, Rest};
+            Parts -> {Package, Parts}
+        end,
+        Module = list_to_existing_atom("pooka@" ++ Owner ++ "@" ++ lists:flatten(lists:join("@", Segments))),
+        Attributes = Module:module_info(attributes),
+        Layouts = proplists:get_value(pooka_class_layout, Attributes, []),
+        {Tag, Name, Count, Hierarchy} = lists:keyfind(Tag, 1, Layouts),
+        {ok, Name, Count, Hierarchy}
+    catch _:_ -> error end;
+class_description(_) -> error.
+
 inspect_list([],_) -> [];
 inspect_list([V],D) -> inspect_value(V,D);
 inspect_list([V|Rest],D) when is_list(Rest) -> [inspect_value(V,D),", ",inspect_list(Rest,D)];

@@ -318,3 +318,38 @@ fn element(index: Int, value: f.Term, line: Int) -> f.Term {
 fn integer(value: Int, line: Int) -> f.Term {
   f.node("integer", line, [f.Integer(value)])
 }
+
+/// Publish the same checked layout used by constructors for debug inspection.
+/// A declared Nil field and an empty extension slot need different treatment.
+///
+/// ```erlang
+/// {attribute,1,pooka_class_layout,[{ClassTag,'Circle',1,true}]}
+/// ```
+/// Erlang abstract format: https://www.erlang.org/doc/apps/erts/absform.html#module-declarations-and-forms.
+pub fn inspection_attributes(
+  state: unify.State,
+  classes: List(nominal.Class),
+) -> List(f.Term) {
+  let classes = list.filter(classes, fn(class) { !class.actor })
+  case classes {
+    [] -> []
+    _ -> [
+      f.node("attribute", 1, [
+        f.Atom("pooka_class_layout"),
+        f.Sequence(
+          list.map(classes, fn(class) {
+            f.Tuple([
+              f.Atom(nominal.tag(class.runtime_module, class.source.name.name)),
+              f.Atom(class.source.name.name),
+              f.Integer(own_count(class)),
+              f.Atom(case unify.in_hierarchy(state, class) {
+                True -> "true"
+                False -> "false"
+              }),
+            ])
+          }),
+        ),
+      ]),
+    ]
+  }
+}

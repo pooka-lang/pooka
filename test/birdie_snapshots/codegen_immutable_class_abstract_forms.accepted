@@ -7,6 +7,7 @@ test_name: class_abstract_forms_snapshot_test
 -module(pooka@app@main).
 -file("src/main.pooka", 1).
 -export([main/0,'$class@Box@new'/1,'$class@Box@get'/1]).
+-pooka_class_layout([{pooka@class@main@Box, 'Box', 1, false}]).
 '$class@Box@new'(M0) ->
     M1 = {pooka@class@main@Box, '$uninitialized'},
     begin

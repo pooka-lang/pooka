@@ -1,0 +1,11 @@
+---
+version: 2.0.2
+title: class inspection declared fields and hierarchy
+---
+Circle(2.5)
+[Circle(1.0)]
+Leaf(1, Nil, "leaf")
+Box(Circle(3.0))
+#(Some(Circle(4.0)), Ok(Circle(5.0)))
+Shape()
+
