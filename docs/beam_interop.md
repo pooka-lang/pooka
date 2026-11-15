@@ -227,3 +227,20 @@ The enum variant `Unit.Feet` is written `'|Unit.Feet|` in LFE.
 
 
 Different languages, one street. Everybody waves.
+
+## Panic locations
+
+`panic` and `todo` raise an Erlang error with this reason:
+
+```erlang
+{pooka_panic, Message, Path, Line}
+```
+
+`Message` and `Path` are UTF-8 binaries; `Line` is a one-based integer. The
+location belongs to the expression itself, including calls in tail position.
+Error-reporting tools should read these fields rather than depend on a surviving
+caller frame. Uncaught failures and test failures display the location, and
+user-facing traces omit the package's private runtime frames.
+
+Older compiled code may still raise `{pooka_panic, Message}` without source
+metadata. The runtime keeps support for describing that legacy shape.

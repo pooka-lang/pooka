@@ -16,6 +16,8 @@
 
 ### Bug fixes
 
+- Preserve panic and todo source locations through tail calls, expose them in crash and test reports, and hide compiler-private runtime frames (#29).
+
 - Generate API documentation only for the current package, keeping dependency modules and internal `$package` paths out of its pages and navigation.
 
 - Read published native application resources when no `.app.src` exists, preserving metadata and diagnosing invalid resources clearly (#17).

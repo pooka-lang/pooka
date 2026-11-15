@@ -137,8 +137,8 @@ rename_runtime(Value, _) -> Value.
 execution_eval(Directory, Module) ->
     io_lib:format(
         "try true = code:add_patha(~tp), {ok, _} = application:ensure_all_started(~p), _ = ~p:main(), halt(0) "
-        "catch C:R:S -> io:format(standard_error, \"~~ts~~nstacktrace: ~~tp~~n\", [~p:describe_failure(C,R),S]), halt(1) end.",
-        [unicode:characters_to_list(Directory), application(Directory), binary_to_atom(Module, utf8), runtime_name(application(Directory))]).
+        "catch C:R:S -> io:format(standard_error, \"~~ts~~nstacktrace: ~~tp~~n\", [~p:describe_failure(C,R),~p:user_stack(S)]), halt(1) end.",
+        [unicode:characters_to_list(Directory), application(Directory), binary_to_atom(Module, utf8), runtime_name(application(Directory)), runtime_name(application(Directory))]).
 
 execute(Directory, Module, Arguments, Colour) ->
     launch(Directory, execution_eval(Directory, Module), Arguments, Colour).

@@ -1025,6 +1025,14 @@ fn expression(
     //
     // https://www.erlang.org/doc/apps/erts/absform.html#expressions
     ast.Propagate(operand, _) -> runtime("propagate", [operand], line, context)
+    // Tail calls may remove this function's frame. Carry the written source
+    // address as ordinary arguments rather than guessing it from a stack.
+    //
+    // ```erlang
+    // {call,L,{remote,L,{atom,L,Runtime},{atom,L,panic}},
+    //  [Message,Path,{integer,L,L}]}
+    // ```
+    // https://www.erlang.org/doc/apps/erts/absform.html#expressions
     ast.Panic(message, _) | ast.Todo(message, _) ->
       runtime(
         "panic",
@@ -1033,6 +1041,8 @@ fn expression(
             Some(value) -> value
             None -> ast.StringLiteral("process terminated", span)
           },
+          ast.StringLiteral(context.path, span),
+          ast.IntLiteral(int.to_string(line), span),
         ],
         line,
         context,
