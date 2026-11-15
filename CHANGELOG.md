@@ -17,6 +17,7 @@
 ### Bug fixes
 
 - Preserve panic and todo source locations through tail calls, expose them in crash and test reports, and hide compiler-private runtime frames (#29).
+- Inspect class hierarchies using checked layouts, displaying the most-derived class and inherited fields without extension padding in echo and test failures (#14).
 
 - Generate API documentation only for the current package, keeping dependency modules and internal `$package` paths out of its pages and navigation.
 

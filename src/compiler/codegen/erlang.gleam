@@ -454,7 +454,10 @@ fn generate_internal(
         f.Tuple([f.Characters(path), f.Integer(1)]),
       ]),
       f.node("attribute", 1, [f.Atom("export"), f.Sequence(exports)]),
-      ..list.reverse(definitions)
+      ..list.append(
+        class_layout.inspection_attributes(inferred.state, classes),
+        list.reverse(definitions),
+      )
     ],
     list.reverse(tests),
   ))
