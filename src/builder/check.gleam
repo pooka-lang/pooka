@@ -161,6 +161,14 @@ fn check_graph_with_overlays(
         groups
         |> list.filter(fn(target) { list.contains(visible, target.0.name) })
         |> list.flat_map(fn(target) { target.1 })
+        |> list.filter(fn(file) {
+          case compiler.expected_module_path(file.path) {
+            Ok(identity) ->
+              package.module_owner(identity, loaded.name).1 != "main"
+              || package.owner(file.path, loaded.name) == owner.name
+            Error(_) -> True
+          }
+        })
 
       // A broken file still has an address. Remember it without treating
       // its unfinished syntax as a usable module.
@@ -215,7 +223,8 @@ fn check_graph_with_overlays(
     })
   let collisions =
     list.filter(identities, fn(item) {
-      list.count(identities, fn(other) { other.0 == item.0 }) > 1
+      item.0 != "main"
+      && list.count(identities, fn(other) { other.0 == item.0 }) > 1
     })
     |> list.map(fn(item) {
       diagnostic.error(
@@ -228,14 +237,28 @@ fn check_graph_with_overlays(
       )
     })
   let module_names =
-    identities |> list.map(fn(item) { #(item.0, item.1) }) |> dict.from_list
+    identities
+    |> list.filter(fn(item) { item.0 != "main" })
+    |> list.map(fn(item) { #(item.0, item.1) })
+    |> dict.from_list
   let files =
     list.map(files, fn(file) {
       let syntax = file.parsed.module
+      // Each package's entry point is private to that package. Never let the
+      // last dependency named main steal an owner's local import.
+      let owner = package.owner(file.path, loaded.name)
+      let local_names = case
+        list.find(identities, fn(item) {
+          item.0 == "main" && package.owner(item.2, loaded.name) == owner
+        })
+      {
+        Ok(main) -> dict.insert(module_names, "main", main.1)
+        Error(_) -> module_names
+      }
       let imports =
         list.map(syntax.imports, fn(imported) {
           let raw = string.join(imported.module.segments, "/")
-          case dict.get(module_names, raw) {
+          case dict.get(local_names, raw) {
             Error(_) -> imported
             Ok(identity) ->
               ast.Import(

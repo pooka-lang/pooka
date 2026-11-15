@@ -213,3 +213,23 @@ Prints the compiler version, for example `pooka 0.1.0`.
 ## Colours
 
 Pooka colours its output when it is talking to a terminal. Set `NO_COLOR=1` to turn colours off. Output sent to a file or another program is always plain.
+
+## Running dependency tools
+
+A development dependency may provide its own `src/main.pooka`, independently of
+the application's entry point. Keep it pinned in `pooka.lock` and run it with:
+
+```sh
+pooka run -m tool -- init
+```
+
+`-m` (or `--module`) accepts a source module path or a resolved package name. A
+package name selects that package's `main` module. To select an exact owner when
+names overlap, use `package:module`, for example `tool:main` or `app:tools/check`.
+The selected module must define a zero-argument `main()` function.
+
+Arguments after `--` are passed unchanged, including options and empty arguments.
+Without `-m`, Pooka runs the current package's `src/main.pooka`. A plain `-m main`
+also refers to the current package's entry point. Another package's main module
+is private to that package and cannot be imported as an ordinary dependency API.
+All other module ownership collision checks remain in place.
