@@ -31,6 +31,7 @@
 import compiler/parser/ast
 import compiler/typesystem/bit_array
 import compiler/typesystem/bit_array_layout
+import compiler/typesystem/call_constraints
 import compiler/typesystem/exhaustiveness
 import compiler/typesystem/monotype.{type Type}
 import compiler/typesystem/nominal
@@ -1087,9 +1088,9 @@ fn expression_inner(
   }
 }
 
-/// Use the callee's parameter types while walking arguments left to right.
-/// Earlier arguments can establish the receiver type needed inside a later
-/// callback.
+/// Collect compatible argument views before checking contextual callbacks,
+/// then retain the normal left-to-right diagnostic pass. Fresh invocation
+/// variables can share a common base without changing captured variables.
 ///
 /// ```text
 /// apply(User("Ada"), fn(user) { user.name }) checks the field with user: User
@@ -1108,13 +1109,37 @@ fn infer_arguments(
   }
   case list.length(parameters) == list.length(values) {
     True -> {
+      let captured =
+        environment_schemes(environment)
+        |> list.fold(set.new(), fn(found, value) {
+          set.union(found, scheme.free_variables(value, state))
+        })
+      let eligible =
+        set.difference(monotype.variables(unify.apply(callee, state)), captured)
+      let #(known, state) =
+        argument_shapes(values, environment, state, path, context)
+      let bounds =
+        list.index_map(list.zip(parameters, values), fn(pair, index) {
+          dict.get(known, index)
+          |> result.map(fn(found) {
+            call_constraints.Argument(
+              pair.0,
+              found.0,
+              ast.expression_span(pair.1),
+            )
+          })
+        })
+        |> list.filter_map(fn(value) { value })
+      let state = call_constraints.seed(bounds, eligible, state, path)
       use #(types, state, diagnostics) <- result.try(
         list.try_fold(
-          list.zip(values, parameters),
+          list.index_map(list.zip(values, parameters), fn(value, index) {
+            #(value, index)
+          }),
           #([], state, []),
           fn(acc, pair) {
             let #(types, state, diagnostics) = acc
-            let #(value, expected) = pair
+            let #(#(value, expected), index) = pair
             use found <- result.try(case value {
               ast.AnonymousFunction(parameters, annotation, body, span) ->
                 callable_expected(
@@ -1128,7 +1153,13 @@ fn infer_arguments(
                   Context(..context, actor_writes: False),
                   Some(expected),
                 )
-              _ -> expression_type(value, environment, state, path, context)
+              _ ->
+                case dict.get(known, index) {
+                  Ok(#(type_, diagnostics)) ->
+                    Ok(Inferred(type_, state, diagnostics))
+                  Error(_) ->
+                    expression_type(value, environment, state, path, context)
+                }
             })
             let state = case
               unify.unify(
@@ -1157,6 +1188,73 @@ fn infer_arguments(
     }
     False -> infer_many(values, environment, state, path, context)
   }
+}
+
+/// Read argument shapes before contextual callback bodies. A failed speculative
+/// lookup is deferred to the normal left-to-right pass, which keeps its precise
+/// diagnostics and can use constraints established by an earlier callback.
+///
+/// ```text
+/// start(fn(mailbox) { ... }, handle_clock) seeds Clock before checking the body
+/// ```
+fn argument_shapes(
+  values: List(ast.Expression),
+  environment: Environment,
+  state: unify.State,
+  path: String,
+  context: Context,
+) -> #(Dict(Int, #(Type, List(Diagnostic))), unify.State) {
+  list.index_fold(values, #(dict.new(), state), fn(acc, value, index) {
+    let #(known, state) = acc
+    case value {
+      ast.AnonymousFunction(parameters, annotation, _, _) ->
+        case
+          callback_shape(parameters, annotation, state, context.generics, path)
+        {
+          Ok(#(type_, state)) -> #(
+            dict.insert(known, index, #(type_, [])),
+            state,
+          )
+          Error(_) -> acc
+        }
+      _ ->
+        case expression_type(value, environment, state, path, context) {
+          Ok(found) ->
+            case diagnostic.has_errors(found.diagnostics) {
+              False -> #(
+                dict.insert(known, index, #(found.type_, found.diagnostics)),
+                found.state,
+              )
+              True -> acc
+            }
+          Error(_) -> acc
+        }
+    }
+  })
+}
+
+fn callback_shape(
+  parameters: List(ast.Parameter),
+  annotation: Option(ast.TypeAnnotation),
+  state: unify.State,
+  generics: Dict(String, Type),
+  path: String,
+) -> Result(#(Type, unify.State), Nil) {
+  use types <- result.try(
+    list.try_map(parameters, fn(parameter) {
+      use annotation <- result.try(option.to_result(parameter.annotation, Nil))
+      annotation_type(annotation, generics, state, path)
+      |> result.map_error(fn(_) { Nil })
+    }),
+  )
+  use #(returned, state) <- result.try(case annotation {
+    None -> Ok(unify.fresh(state))
+    Some(annotation) ->
+      annotation_type(annotation, generics, state, path)
+      |> result.map(fn(value) { #(value, state) })
+      |> result.map_error(fn(_) { Nil })
+  })
+  Ok(#(monotype.FunctionType(types, returned), state))
 }
 
 /// Infer a sequence without an expected parameter list, retaining source order

@@ -244,6 +244,31 @@ main() {
 - Return types use `->`, as you will see in the next chapter.
 - If an annotation and the code disagree, the compiler will show you both and ask which one is telling the truth.
 
+### Shared generic arguments
+
+When one generic parameter receives several related values, the call uses their nearest shared base. Both siblings get a seat at the table.
+
+```pooka
+module main
+
+class Shape {}
+
+class Circle is Shape {}
+
+class Square is Shape {}
+
+pair(first: a, second: a) -> List(a) {
+  [first, second]
+}
+
+main() {
+  let shapes: List(Shape) = pair(Circle(), Square())
+  echo shapes
+}
+```
+
+Reversing the arguments keeps the same type. Immutable containers can share that wider view too. A declared callback parameter can supply context for another callback in the same call. Class type arguments and function inputs remain invariant; unrelated values still need different parameters or an explicit common representation.
+
 ### Blocks
 
 A block is a pair of braces holding a few lines. Its value is the value of its last line.
