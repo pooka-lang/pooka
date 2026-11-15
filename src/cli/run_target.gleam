@@ -44,7 +44,7 @@ pub fn select(
       let #(owner, identity) = package.module_owner(identity, root)
       Ok(Candidate(owner, identity, file.parsed.module))
     })
-  let found =
+  let matching =
     list.filter(candidates, fn(candidate) {
       case selector {
         None -> candidate.owner == root && candidate.identity == "main"
@@ -63,43 +63,44 @@ pub fn select(
         }
       }
     })
+  // A library module may share the package's name without being a front door.
+  // Keep it out of the choices before deciding whether the shorthand is ambiguous.
+  let runnable = list.filter(matching, has_main)
+  let package_entry = case selector {
+    Some(name) ->
+      list.filter(runnable, fn(candidate) {
+        candidate.owner == name && candidate.identity == "main"
+      })
+    None -> []
+  }
+  // The documented bare package name means that package's main. Exact owner
+  // selectors still allow a caller to choose its same-named executable module.
+  let found = case package_entry {
+    [] -> runnable
+    _ -> package_entry
+  }
   case found {
     [] ->
       Error(case selector {
         None -> "running requires src/main.pooka to define main()."
         Some(name) ->
-          "No entry module or package matches `"
-          <> name
-          <> "`. Use -m <module|package>; package:module selects an exact owner."
-      })
-    [candidate] -> {
-      let main =
-        list.any(candidate.syntax.declarations, fn(value) {
-          case value {
-            ast.FunctionDeclaration(function) ->
-              function.name.name == "main" && function.parameters == []
-            _ -> False
+          case matching {
+            [] ->
+              "No entry module or package matches `"
+              <> name
+              <> "`. Use -m <module|package>; package:module selects an exact owner."
+            _ ->
+              "The entry selected by `"
+              <> name
+              <> "` must define a zero-argument main() function."
           }
-        })
-      case main {
-        False ->
-          Error(
-            "Module `"
-            <> candidate.owner
-            <> ":"
-            <> candidate.identity
-            <> "` must define a zero-argument main() function.",
-          )
-        True ->
-          Ok(Target(
-            erlang.module_name(candidate.owner, candidate.identity),
-            filepath.join(report.layout.target, candidate.owner <> "/ebin"),
-            candidate.owner
-              <> "."
-              <> string.replace(candidate.identity, "/", "."),
-          ))
-      }
-    }
+      })
+    [candidate] ->
+      Ok(Target(
+        erlang.module_name(candidate.owner, candidate.identity),
+        filepath.join(report.layout.target, candidate.owner <> "/ebin"),
+        candidate.owner <> "." <> string.replace(candidate.identity, "/", "."),
+      ))
     many ->
       Error(
         "The entry-point selector is ambiguous. Choose "
@@ -112,4 +113,15 @@ pub fn select(
         <> ".",
       )
   }
+}
+
+/// Only a module function with no arguments is an executable entry point.
+fn has_main(candidate: Candidate) -> Bool {
+  list.any(candidate.syntax.declarations, fn(value) {
+    case value {
+      ast.FunctionDeclaration(function) ->
+        function.name.name == "main" && function.parameters == []
+      _ -> False
+    }
+  })
 }

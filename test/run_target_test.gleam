@@ -105,7 +105,7 @@ pub fn foreign_main_modules_are_not_importable_api_test() {
   assert !string.contains(report.stderr, "multiple packages")
 }
 
-pub fn selectors_report_ambiguity_missing_modules_and_main_arity_test() {
+pub fn package_shorthand_wins_and_invalid_explicit_entries_keep_clear_errors_test() {
   use directory <- support.with_directory("run_target_errors")
   let env = setup(directory)
   support.write(
@@ -120,11 +120,13 @@ pub fn selectors_report_ambiguity_missing_modules_and_main_arity_test() {
     directory <> "/app/src/arity.pooka",
     "module arity\nmain(value: Int) { value }\n",
   )
-  let ambiguous = support.cli_main(["run", "-m", "tool"], env)
-  assert ambiguous.status == 1
-  assert string.contains(ambiguous.stderr, "ambiguous")
-  assert string.contains(ambiguous.stderr, "app:tool")
-  assert string.contains(ambiguous.stderr, "tool:main")
+  let package =
+    support.cli_main(
+      ["run", "-m", "tool", "--", "--help", "two words", ""],
+      env,
+    )
+  assert package.status == 0
+  assert package.stdout == "\"tool\"\n"
   assert support.cli_main(["run", "-m", "app:tool"], env).stdout
     == "\"local tool\"\n"
   list.each(["api", "arity"], fn(name) {
@@ -136,4 +138,66 @@ pub fn selectors_report_ambiguity_missing_modules_and_main_arity_test() {
   assert missing.status == 1
   assert string.contains(missing.stderr, "No entry module or package")
   assert support.cli_main(["run", "-m"], env).status == 1
+}
+
+pub fn a_same_named_library_module_does_not_hide_its_package_entrypoint_test() {
+  use directory <- support.with_directory("run_target_same_named_library")
+  let env = setup(directory)
+  support.write(
+    directory <> "/tool/src/tool.pooka",
+    "module tool\nanswer() { 42 }\n",
+  )
+  let selected =
+    support.cli_main(
+      ["run", "-m", "tool", "--", "--help", "two words", ""],
+      env,
+    )
+  assert selected.status == 0
+  assert selected.stdout == "\"tool\"\n"
+  let exact = support.cli_main(["run", "-m", "tool:tool"], env)
+  assert exact.status == 1
+  assert string.contains(exact.stderr, "zero-argument main()")
+}
+
+pub fn a_package_entrypoint_wins_over_its_same_named_executable_module_test() {
+  use directory <- support.with_directory("run_target_same_named_executable")
+  let env = setup(directory)
+  support.write(
+    directory <> "/tool/src/tool.pooka",
+    "module tool\nmain() { echo \"module tool\" }\n",
+  )
+  let bare =
+    support.cli_main(
+      ["run", "-m", "tool", "--", "--help", "two words", ""],
+      env,
+    )
+  assert bare.status == 0
+  assert bare.stdout == "\"tool\"\n"
+  assert support.cli_main(["run", "-m", "tool:tool"], env).stdout
+    == "\"module tool\"\n"
+}
+
+pub fn ambiguity_lists_only_runnable_modules_test() {
+  use directory <- support.with_directory("run_target_runnable_choices")
+  let env = setup(directory)
+  support.write(
+    directory <> "/app/src/tool/shared.pooka",
+    "module shared\nmain() { Nil }\n",
+  )
+  support.write(
+    directory <> "/tool/src/shared.pooka",
+    "module shared\nmain() { Nil }\n",
+  )
+  let ambiguous = support.cli_main(["run", "-m", "tool/shared"], env)
+  assert ambiguous.status == 1
+  assert string.contains(ambiguous.stderr, "ambiguous")
+  assert string.contains(ambiguous.stderr, "app:tool/shared")
+  assert string.contains(ambiguous.stderr, "tool:shared")
+  support.write(
+    directory <> "/app/src/tool/shared.pooka",
+    "module shared\nanswer() { 42 }\n",
+  )
+  let runnable = support.cli_main(["run", "-m", "tool/shared"], env)
+  assert runnable.status == 0
+  assert string.contains(runnable.stderr, "Running tool.shared")
 }
