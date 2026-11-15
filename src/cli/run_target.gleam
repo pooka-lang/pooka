@@ -82,7 +82,14 @@ pub fn select(
   case found {
     [] ->
       Error(case selector {
-        None -> "running requires src/main.pooka to define main()."
+        None ->
+          case matching {
+            [] -> "running requires src/main.pooka to define main()."
+            _ ->
+              "Module `"
+              <> root
+              <> ":main` must define a zero-argument main() function."
+          }
         Some(name) ->
           case matching {
             [] ->
