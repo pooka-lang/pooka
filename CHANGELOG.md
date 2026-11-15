@@ -4,6 +4,8 @@
 
 ### Added
 
+- Allow module functions named `new`, including local calls, imports and function references, while preserving class and actor constructors (#16).
+
 - Guide interactive Hex publication with hidden, per-invocation API keys, bounded authentication retries and explicit verification prompts, preserving completed upload stages and non-interactive CI behaviour (#33).
 
 ### Performance

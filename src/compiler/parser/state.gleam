@@ -147,6 +147,22 @@ pub fn expect_name(parser: Parser, what: String) -> Parsed(#(String, Span)) {
   }
 }
 
+/// `new` names a constructor in a member body and an ordinary function at
+/// module scope. Keep this exception out of variable and parameter binders.
+///
+/// ```pooka
+/// new(value: Int) -> Int { value }
+/// ```
+pub fn expect_function_name(
+  parser: Parser,
+  what: String,
+) -> Parsed(#(String, Span)) {
+  case current(parser) {
+    Lexeme(token: token.New, span:) -> Ok(#(#("new", span), skip(parser)))
+    _ -> expect_name(parser, what)
+  }
+}
+
 pub fn expect_upper_name(
   parser: Parser,
   what: String,
@@ -248,6 +264,7 @@ fn starts_declaration(first: Token, next: Token) -> Bool {
     | token.Module, _
     | token.Fn, _
     | token.Name(_), token.LeftParen
+    | token.New, token.LeftParen
     | token.Name(_), token.Dot
     | token.Name(_), token.Name(_)
     | token.Name(_), token.Class

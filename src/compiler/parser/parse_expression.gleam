@@ -114,6 +114,7 @@ fn unsupported_keyword(
 fn starts_operand(found: Token) -> Bool {
   case found {
     token.Name(_)
+    | token.New
     | token.UpperName(_)
     | token.Int(_)
     | token.Float(_)
@@ -405,6 +406,7 @@ fn primary(parser: Parser) -> Parsed(Expression) {
       }
     }
     token.Name(name) -> simple(ast.Variable(name:, span:))
+    token.New -> simple(ast.Variable("new", span))
     token.UpperName(name) -> simple(ast.TypeName(name:, span:))
     token.SelfKeyword -> simple(ast.SelfExpression(span:))
     token.Super -> simple(ast.SuperExpression(span:))

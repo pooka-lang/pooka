@@ -1,0 +1,14 @@
+---
+version: 2.0.2
+title: module new function formatting
+---
+module main
+
+new(value: Int) -> Int {
+  value
+}
+
+main() {
+  new(42)
+}
+
