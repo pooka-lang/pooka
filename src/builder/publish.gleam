@@ -11,16 +11,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import builder/build
+import builder/check
 import builder/docs
 import builder/native
+import compiler/analysis/publication
 import diagnostics/diagnostic
 import filepath
+import gleam/dict.{type Dict}
 import gleam/list
 import gleam/result
 import gleam/string
 import project/config
 import project/dependency
 import project/hex
+import project/package
 import project/project
 import project/project_error
 import project/semver
@@ -36,6 +40,8 @@ pub type Report {
     documentation: String,
     files: List(String),
     requirements: List(#(String, String)),
+    diagnostics: List(diagnostic.Diagnostic),
+    sources: Dict(String, String),
   )
 }
 
@@ -100,7 +106,26 @@ pub fn prepare(directory: String) -> Result(Report, build.Failure) {
     paths.1,
     paths.2,
     list.map(requirements, fn(r) { #(r.0, r.2) }),
+    list.append(built.diagnostics, publication_warnings(built.checked)),
+    check.sources(built.checked),
   ))
+}
+
+/// Re-read resolved uses even when compiled artifacts were reused. Only the
+/// package's own production files belong to its publication warning set.
+///
+/// ```text
+/// dependency echo -> no warning; root source echo -> source-labelled warning
+/// ```
+pub fn publication_warnings(
+  checked: check.Report,
+) -> List(diagnostic.Diagnostic) {
+  checked.files
+  |> list.filter(fn(file) {
+    string.starts_with(file.path, "src/")
+    && package.owner(file.path, checked.project.name) == checked.project.name
+  })
+  |> list.flat_map(fn(file) { publication.check(file.uses, file.path) })
 }
 
 /// Optional dependencies may be absent from the selected graph. Read their

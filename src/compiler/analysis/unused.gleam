@@ -181,7 +181,8 @@ fn private_warnings(
           graph,
           set.insert(roots, target),
         )
-        resolve.ModuleReference(_), _
+        resolve.BuiltinReference(..), _
+        | resolve.ModuleReference(_), _
         | resolve.ImportedReference(_), _
         | resolve.MemberReference(..), _
         -> acc

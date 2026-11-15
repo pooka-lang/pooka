@@ -9,6 +9,7 @@ import builder/publish
 import cli/command
 import cli/commands/publish as publish_command
 import cli/publish_session as session
+import gleam/dict
 import gleam/list
 import gleam/string
 import support
@@ -249,6 +250,8 @@ fn archives(directory: String) -> publish.Report {
     directory <> "/docs.tar.gz",
     [],
     [],
+    [],
+    dict.new(),
   )
 }
 

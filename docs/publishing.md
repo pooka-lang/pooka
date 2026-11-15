@@ -42,6 +42,14 @@ repository = { type = "github", user = "your-name", repo = "night_library" }
 
 The [pooka.toml guide](pooka_toml.md) explains every field.
 
+## Debug output
+
+Publication warns when your production code uses the `echo` builtin. It shows
+the source location before confirmation or upload, including dry runs and
+`--yes`. The warning survives cached builds and does not prevent intentional
+debug output from being published. Tests, documentation examples, dependencies
+and your own bindings named `echo` are excluded.
+
 ## Look before you leap
 
 A dry run builds everything and shows you what would be uploaded, without sending anything:

@@ -112,7 +112,20 @@ pub fn run_with_interaction(
                 "\nPublication: replace this package version and its documentation, if Hex permits it.\n"
               _, _ -> ""
             }
-          case list.contains(arguments, "--dry-run") {
+          let warnings =
+            render.render_all(
+              report.diagnostics,
+              report.sources,
+              environment.stderr,
+              diagnostic.Quiet,
+            )
+          let live_warnings =
+            environment.inherit_stdio && !list.contains(arguments, "--dry-run")
+          case live_warnings && warnings != "" {
+            True -> io.notice(warnings)
+            False -> Nil
+          }
+          let outcome = case list.contains(arguments, "--dry-run") {
             True -> Outcome(preview, "", 0)
             False -> {
               let automatic = list.contains(arguments, "--yes")
@@ -190,6 +203,10 @@ pub fn run_with_interaction(
               }
             }
           }
+          Outcome(..outcome, stderr: case live_warnings {
+            True -> outcome.stderr
+            False -> warnings <> outcome.stderr
+          })
         }
       }
     }
