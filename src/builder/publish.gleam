@@ -315,12 +315,30 @@ pub fn upload_with_options(
       )
     _ -> Ok(Nil)
   })
+  upload_with_session(report, key, replace, docs_only, fn(url, key, body) {
+    send(url, key, body) |> result.map(fn(state) { #(state, key) })
+  })
+}
+
+/// Carry the invocation's credentials forward without keeping mutable state.
+/// A key replaced during the package upload must also reach the docs upload.
+///
+/// ```text
+/// package accepted with new key -> docs use new key, package is not resent
+/// ```
+pub fn upload_with_session(
+  report: Report,
+  session: session,
+  replace: Bool,
+  docs_only: Bool,
+  send: fn(String, session, BitArray) -> Result(#(UploadState, session), String),
+) -> Result(List(String), String) {
   use documentation <- result.try(
     simplifile.read_bits(report.documentation)
     |> result.map_error(simplifile.describe_error),
   )
-  use package_state <- result.try(case docs_only {
-    True -> Ok(Published)
+  use #(package_state, session) <- result.try(case docs_only {
+    True -> Ok(#(Published, session))
     False -> {
       use package <- result.try(
         simplifile.read_bits(report.package)
@@ -332,19 +350,19 @@ pub fn upload_with_options(
           True -> "?replace=true"
           False -> ""
         },
-        key,
+        session,
         package,
       )
     }
   })
-  use docs_state <- result.try(
+  use #(docs_state, _) <- result.try(
     send(
       "https://hex.pm/api/packages/"
         <> report.name
         <> "/releases/"
         <> report.version
         <> "/docs",
-      key,
+      session,
       documentation,
     )
     |> result.map_error(fn(error) {

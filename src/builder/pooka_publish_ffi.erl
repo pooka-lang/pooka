@@ -12,15 +12,72 @@
 -module(pooka_publish_ffi).
 -include_lib("kernel/include/file.hrl").
 -export([archive/12, sources/1, post/3, api_key/0,
-         confirm/1, response/3]).
+         confirm/1, response/3, request/4, terminal/0, secret/1, secret/2, ask/1, notice/1,
+         otp/0, api_key_from/2, detailed_response/3]).
 
-api_key() ->
-    case os:getenv("HEX_API_KEY") of
-        false -> case os:getenv("HEXPM_API_KEY") of
-            false -> <<>>;
-            Value -> unicode:characters_to_binary(Value)
-        end;
-        Value -> unicode:characters_to_binary(Value)
+%% An empty primary variable should not hide a usable fallback key.
+api_key() -> api_key_from(os:getenv("HEX_API_KEY"), os:getenv("HEXPM_API_KEY")).
+api_key_from(Primary, Fallback) ->
+    case credential(Primary) of <<>> -> credential(Fallback); Key -> Key end.
+credential(false) -> <<>>;
+credential(Value) -> string:trim(unicode:characters_to_binary(Value)).
+otp() -> credential(os:getenv("HEX_OTP")).
+
+%% stdin and stderr must both be real terminal streams. In particular, a pipe
+%% must never become a credential source just because stdout is a terminal.
+terminal() ->
+    case io:getopts(standard_io) of
+        Options when is_list(Options) ->
+            proplists:get_value(stdin, Options, false) andalso
+            proplists:get_value(stderr, Options, false);
+        _ -> false
+    end.
+
+notice(Message) -> io:put_chars(standard_error, Message), nil.
+ask(Prompt) ->
+    case terminal() of
+        false -> false;
+        true ->
+            io:put_chars(standard_error, Prompt),
+            case io:get_line(standard_io, "") of
+                Line when is_list(Line); is_binary(Line) ->
+                    lists:member(string:lowercase(string:trim(chars(Line))), ["y", "yes"]);
+                _ -> false
+            end
+    end.
+
+%% OTP owns hidden input and the terminal modes on Unix and Windows. Always
+%% restore cooked mode, even after EOF or a read error; never use a shell or
+%% fall back to visible input. See https://www.erlang.org/doc/apps/stdlib/io.html#get_password/0.
+%%
+%% secret(<<"Hex API key (hidden): ">>) -> {ok, <<"one-invocation-key">>}
+secret(Prompt) -> secret(Prompt, fun io:get_password/0).
+
+%% The reader is injectable so EOF/error restoration can be exercised while a
+%% real terminal is still present. Production always uses OTP's hidden reader.
+secret(Prompt, Read) ->
+    case terminal() of
+        false -> {error, <<"Hidden input requires an interactive terminal. Set HEX_API_KEY (or HEXPM_API_KEY) for non-interactive publication.">>};
+        true ->
+            try
+                ok = shell:start_interactive({noshell, raw}),
+                try
+                    io:put_chars(standard_error, Prompt),
+                    Read()
+                of
+                    Value when is_list(Value); is_binary(Value) ->
+                        case credential(Value) of
+                            <<>> -> {error, <<"Publication cancelled; no credential was entered.">>};
+                            Key -> {ok, Key}
+                        end;
+                    _ -> {error, <<"Publication cancelled; no credential was entered.">>}
+                after
+                    ok = shell:start_interactive({noshell, cooked}),
+                    io:put_chars(standard_error, "\n")
+                end
+            catch _:_ ->
+                {error, <<"Could not read hidden input. Set HEX_API_KEY (or HEXPM_API_KEY) and retry.">>}
+            end
     end.
 
 %% Read the production application's own module inventory, never sibling/test
@@ -209,12 +266,16 @@ ignored(Name) ->
 %% piping a command without --yes cannot accidentally approve publication.
 confirm(Preview) ->
     io:put_chars(standard_error, Preview),
-    case io:get_line(standard_io, "Publish this package and its documentation? [y/N] ") of
-        Line when is_list(Line) -> lists:member(string:lowercase(string:trim(Line)), ["y", "yes"]);
-        _ -> false
+    ask(<<"Upload the prepared files? [y/N] ">>).
+
+post(URL, Key, Body) ->
+    case request(URL, Key, otp(), Body) of
+        {error, {http_failure, _, Detail, _}} -> {error, Detail};
+        {error, {transport_failure, Detail}} -> {error, Detail};
+        Result -> Result
     end.
 
-post(URL0, Key, Body) ->
+request(URL0, Key, Code, Body) ->
     try
         URL = chars(URL0),
         #{scheme := "https", host := "hex.pm"} = uri_string:parse(URL),
@@ -223,15 +284,34 @@ post(URL0, Key, Body) ->
         SSL = [{verify, verify_peer}, {cacerts, public_key:cacerts_get()},
             {server_name_indication, "hex.pm"},
             {customize_hostname_check, [{match_fun, public_key:pkix_verify_hostname_match_fun(https)}]}],
-        OTP = case os:getenv("HEX_OTP") of false -> []; OtpCode -> [{"x-hex-otp", OtpCode}] end,
-        Headers = [{"authorization", chars(Key)}, {"accept", "application/json"}, {"user-agent", "pooka/0.1"} | OTP],
+        OTP = case Code of <<>> -> []; _ -> [{"x-hex-otp", chars(Code)}] end,
+        Headers = [{"authorization", chars(Key)}, {"accept", "application/json"}, {"user-agent", "pooka/0.2"} | OTP],
         case httpc:request(post, {URL, Headers, "application/octet-stream", Body},
                 [{ssl, SSL}, {autoredirect, false}, {timeout, 60000}, {connect_timeout, 10000}], [{body_format, binary}]) of
-            {ok, {{_, Code, _}, ResponseHeaders, ResponseBody}} -> response(Code, ResponseHeaders, ResponseBody);
-            {error, _} -> {error, <<"Could not connect to Hex. Check connectivity and retry.">>}
+            {ok, {{_, Status, _}, ResponseHeaders, ResponseBody}} -> detailed_response(Status, ResponseHeaders, ResponseBody);
+            {error, _} -> {error, {transport_failure, <<"Could not confirm the Hex upload. Check connectivity.">>}}
         end
-    catch _:_ -> {error, <<"Could not send the Hex upload.">>}
+    catch _:_ -> {error, {transport_failure, <<"Could not confirm the Hex upload.">>}}
     end.
+
+%% Keep status and explicit verification challenges structured for the session.
+%% Do not infer an OTP challenge merely from permission-denied status 403.
+detailed_response(Code, Headers, Body) ->
+    case response(Code, Headers, Body) of
+        {error, Detail} -> {error, {http_failure, Code, Detail, verification(Headers, Body)}};
+        Success -> Success
+    end.
+
+verification(Headers, Body) ->
+    Header = lists:any(fun({K, V}) ->
+        string:lowercase(chars(K)) =:= "x-hex-otp" andalso
+        string:lowercase(chars(V)) =:= "required"
+    end, Headers),
+    Data = try json:decode(Body) catch _:_ -> #{} end,
+    Message = case Data of #{<<"message">> := M} when is_binary(M) -> string:lowercase(M); _ -> <<>> end,
+    Header orelse lists:member(Message, [<<"two factor required">>,
+        <<"two-factor authentication required">>,
+        <<"two factor authentication is required for this request">>]).
 
 %% A staged upload is accepted, but is not public. Keep that state distinct
 %% from both a rejected request and a published release. The Gleam publisher
@@ -247,12 +327,15 @@ response(Code, Headers, Body) when Code >= 200, Code < 300 ->
         true -> {ok, {staged, approval_url(Data)}};
         false -> {ok, published}
     end;
-response(Code, _, Body) ->
+response(Code, Headers, Body) ->
     Prefix = io_lib:format("Hex rejected the upload (HTTP ~p).", [Code]),
     Detail = response_detail(Body),
     Hint = case Code of
         401 -> " Check HEX_API_KEY (or HEXPM_API_KEY).";
-        403 -> " If Hex requests two-factor authentication, set HEX_OTP to a fresh code and retry.";
+        403 -> case verification(Headers, Body) of
+            true -> " Hex requested verification; set HEX_OTP to a fresh code and retry.";
+            false -> " Check the API key's publishing permissions."
+        end;
         _ -> ""
     end,
     {error, unicode:characters_to_binary([Prefix, "\n", Detail, Hint])}.
