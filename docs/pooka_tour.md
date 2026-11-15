@@ -1353,3 +1353,18 @@ There is more to find, but you now know enough to find it yourself. A few doors 
 Leave the lantern by the door when you go. Someone else might need it.
 
 — Peregrine Finch
+
+## Discarding a Result
+
+A Result can carry an error even when its successful value is Nil. Pooka warns
+when an expression statement throws that Result away before another statement.
+Handle it with `match`, propagate it with `?` from a Result-returning function,
+or write an explicit discard when ignoring the outcome is intentional:
+
+```pooka
+let _ = operation()
+```
+
+The final expression returned by a function is used, so it does not receive this
+warning. The warning does not change the return types of IO or other APIs, and it
+does not turn a discarded Result into a runtime exception.
