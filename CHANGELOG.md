@@ -5,6 +5,7 @@
 ### Added
 
 - Warn when non-final expression statements discard a Result, while keeping explicit discards and returned values quiet (#15).
+- Warn before publishing production code that uses the echo builtin, including cached builds and non-interactive publication, without rejecting intentional debug output (#21).
 
 - Allow module functions named `new`, including local calls, imports and function references, while preserving class and actor constructors (#16).
 

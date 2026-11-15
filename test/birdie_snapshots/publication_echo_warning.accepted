@@ -1,0 +1,16 @@
+---
+version: 2.0.2
+title: publication echo warning
+---
+warning: debug output in published code
+  ╭─ src/main.pooka:2:10
+  │
+2 │ main() { echo 42 }
+  │          ──┬─
+  │            ╰─ this echo remains in the published package
+  ╰─
+
+help: Remove the debug print before publishing, or keep it intentionally. This warning does not prevent publication.
+
+Found 1 warning.
+

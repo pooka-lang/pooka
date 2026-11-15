@@ -37,6 +37,7 @@ pub type Exports =
   Dict(String, Set(String))
 
 pub type Reference {
+  BuiltinReference(name: String, span: Span)
   DeclarationReference(name: String)
   ModuleReference(alias: String)
   ImportedReference(name: String)
@@ -292,7 +293,20 @@ fn unknown(
     ValueName -> scope.values
   }
   case set.contains(candidates, name) {
-    True -> reference(name, namespace, scope)
+    True -> {
+      let builtin_echo =
+        name == "echo"
+        && namespace == ValueName
+        && !set.contains(scope.locals, name)
+        && !set.contains(scope.members, name)
+        && !set.contains(scope.declared, name)
+        && !set.contains(scope.imported, name)
+        && !set.contains(scope.qualifiers, name)
+      case builtin_echo {
+        True -> [Usage(Use(scope.declaration, BuiltinReference(name, span)))]
+        False -> reference(name, namespace, scope)
+      }
+    }
     False -> {
       let #(kind, noun) = case namespace {
         TypeName -> #("type", "type")
