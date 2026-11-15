@@ -37,7 +37,9 @@ def command(program):
 
 
 def environment():
-    return {**os.environ, "HEX_API_KEY": "", "HEXPM_API_KEY": "", "HEX_OTP": ""}
+    # A pseudo-terminal needs a declared capability set; CI may leave TERM
+    # unset even though the slave descriptor is a real terminal.
+    return {**os.environ, "TERM": "xterm", "HEX_API_KEY": "", "HEXPM_API_KEY": "", "HEX_OTP": ""}
 
 
 @unittest.skipUnless(os.name == "posix", "POSIX pseudo-terminal harness")
@@ -79,6 +81,7 @@ class PublishPrompt(unittest.TestCase):
             if status is None or not os.WIFEXITED(status):
                 _, status = os.waitpid(pid, 0)
             self.assertEqual(os.waitstatus_to_exitcode(status), 0, output.decode(errors="replace"))
+            self.assertIn(b"Hidden test key: ", output, "Hidden reader never became available")
             self.assertIn(expected, output)
             self.assertIn(b"echo-restored", output, "Terminal echo was not restored")
             self.assertIn(b"RESTORED", output)
