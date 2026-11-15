@@ -421,7 +421,7 @@ pub fn section_headings_are_bold_amber_test() {
   )
   assert string.contains(
     coloured_help(["run"]),
-    colour.bold_lantern_orange <> "Example:" <> colour.reset,
+    colour.bold_lantern_orange <> "Examples:" <> colour.reset,
   )
 }
 

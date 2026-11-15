@@ -335,7 +335,7 @@ pub fn build_rejects_unsupported_constructs_with_source_context_test() {
 pub fn nonzero_arity_main_is_rejected_before_execution_test() {
   let result = run("codegen_main_arity", "main(value) { value }")
   assert result.status == 1
-  assert string.contains(result.stderr, "requires")
+  assert string.contains(result.stderr, "must define a zero-argument main()")
   assert !string.contains(result.stderr, "undef")
 }
 
