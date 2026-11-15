@@ -11,7 +11,7 @@
 %%% ```
 
 -module(pooka_runtime_ffi).
--export([remainder/2, propagate/1, panic/1, assert/2, break/1, continue/0, echo/1, echo/3, inspect/1, encode/3, run_entry/2, escript_entry/3, interface_call/4, actor_start/4, actor_self/0, actor_owner/1, actor_initialize/1, actor_read/2, actor_write/3, actor_call/4, iteration_next/3, iteration_exhausted/0, describe_failure/2, assert_equal/3, assert_equal/5, run_tests/2]).
+-export([remainder/2, propagate/1, panic/1, panic/3, assert/2, break/1, continue/0, echo/1, echo/3, inspect/1, encode/3, run_entry/2, escript_entry/3, interface_call/4, actor_start/4, actor_self/0, actor_owner/1, actor_initialize/1, actor_read/2, actor_write/3, actor_call/4, iteration_next/3, iteration_exhausted/0, describe_failure/2, user_stack/1, assert_equal/3, assert_equal/5, run_tests/2]).
 remainder(A, B) when is_integer(A), is_integer(B) -> A rem B;
 remainder(A, B) when is_float(A), is_float(B) -> math:fmod(A, B).
 %% Unwrap success or throw the private return tag consumed by this callable's generated
@@ -24,6 +24,9 @@ remainder(A, B) when is_float(A), is_float(B) -> math:fmod(A, B).
 propagate({ok, Value}) -> Value;
 propagate({error, _} = Error) -> throw({pooka_return, Error}).
 panic(Message) -> erlang:error({pooka_panic, Message}).
+%% The source address survives a tail call even when its author's frame does not.
+%% panic(<<"boom">>, <<"src/main.pooka">>, 4) raises a tool-readable four-tuple.
+panic(Message, Path, Line) -> erlang:error({pooka_panic, Message, Path, Line}).
 assert(true, _) -> nil;
 assert(false, Message) -> erlang:error({pooka_assert, Message}).
 %% Raise a structured assertion failure using operands already evaluated by generated code.
@@ -143,13 +146,15 @@ entry_status(Application, Module) ->
         _ = Module:main(),
         0
     catch Class:Reason:Stack ->
-        io:format(standard_error, "~ts~nstacktrace: ~tp~n", [describe_failure(Class, Reason), Stack]),
+        io:format(standard_error, "~ts~nstacktrace: ~tp~n", [describe_failure(Class, Reason), user_stack(Stack)]),
         1
     end.
 
 
 
 
+describe_failure(error, {pooka_panic, Message, Path, Line}) ->
+    ["panic: ", Message, " (", Path, ":", integer_to_list(Line), ")"];
 describe_failure(error, {pooka_panic, Message}) -> ["panic: ", Message];
 describe_failure(error, {pooka_assert_values, Message, _, _, _, _}) -> ["assertion failed: ", Message];
 describe_failure(error, {pooka_assert_values, Message, _, _}) -> ["assertion failed: ", Message];
@@ -331,7 +336,7 @@ escript_entry(Application, Module, _Arguments) ->
         ok = code:add_pathsa(Paths),
         entry_status(Application, Module)
     catch Class:Reason:Stack ->
-        io:format(standard_error, "~ts~nstacktrace: ~tp~n", [describe_failure(Class, Reason), Stack]),
+        io:format(standard_error, "~ts~nstacktrace: ~tp~n", [describe_failure(Class, Reason), user_stack(Stack)]),
         1
     after file:del_dir_r(Directory) end,
     erlang:halt(Status).
@@ -461,6 +466,8 @@ capture_text(Characters, Encoding) ->
 %% Preserve assertion details and stack information in the per-test failure representation.
 failure_term(Class, Reason, Stack) ->
     Details = case Reason of
+        {pooka_panic, _, Path, Line} ->
+            [{<<"location">>, iolist_to_binary([Path, ":", integer_to_binary(Line)])}];
         {pooka_assert_values, _, Expected, Found, Path, Line} ->
             [{<<"expected">>, inspect(Expected)}, {<<"found">>, inspect(Found)},
              {<<"location">>,iolist_to_binary([Path,":",integer_to_binary(Line)])}];
@@ -469,7 +476,7 @@ failure_term(Class, Reason, Stack) ->
                 ++ spec_location(Stack);
         _ -> spec_location(Stack)
     end,
-    {unicode:characters_to_binary(describe_failure(Class,Reason)), Details, test_format(Stack)}.
+    {unicode:characters_to_binary(describe_failure(Class,Reason)), Details, test_format(user_stack(Stack))}.
 
 
 
@@ -484,5 +491,13 @@ spec_location(Stack) ->
             [{<<"location">>, iolist_to_binary([File, ":", integer_to_binary(Line)])}];
         [] -> []
     end.
+%% Keep compiler-private runtime source paths out of displayed traces. Each
+%% published package rewrites this module name, and ?MODULE follows that name.
+user_stack(Stack) -> [Frame || Frame = {Module, _, _, _} <- Stack, not runtime_frame(Module)].
+runtime_frame(Module) ->
+    Name = atom_to_list(Module),
+    Module =:= ?MODULE orelse
+        (lists:prefix("pooka@", Name) andalso lists:suffix("@@runtime", Name)).
+
 test_format([]) -> <<>>;
 test_format(Value) -> unicode:characters_to_binary(io_lib:format("~tp",[Value])).

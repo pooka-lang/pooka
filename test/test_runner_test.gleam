@@ -317,7 +317,7 @@ pub fn failures_point_at_the_failing_line_test() {
   let report = support.cli_main(["test"], command.plain(directory))
   assert report.status == 1
   assert string.contains(report.stdout, "panic: odd")
-  assert string.contains(report.stdout, "test/line.spec.pooka:4")
+  assert string.contains(report.stdout, "src/check.pooka:5")
 }
 
 pub fn compact_mode_shows_failures_and_totals_without_passing_rows_test() {
