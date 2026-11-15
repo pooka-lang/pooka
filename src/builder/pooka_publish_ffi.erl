@@ -302,16 +302,24 @@ detailed_response(Code, Headers, Body) ->
         Success -> Success
     end.
 
+%% Hex's canonical challenge uses WWW-Authenticate, including invalid_totp.
+%% https://github.com/hexpm/hexpm/blob/main/lib/hexpm_web/auth_helpers.ex
 verification(Headers, Body) ->
     Header = lists:any(fun({K, V}) ->
-        string:lowercase(chars(K)) =:= "x-hex-otp" andalso
-        string:lowercase(chars(V)) =:= "required"
+        Name = string:lowercase(chars(K)),
+        Value = string:lowercase(chars(V)),
+        (Name =:= "x-hex-otp" andalso Value =:= "required") orelse
+        (Name =:= "www-authenticate" andalso
+            (string:find(Value, "error=\"totp_required\"") =/= nomatch orelse
+             string:find(Value, "error=\"invalid_totp\"") =/= nomatch))
     end, Headers),
     Data = try json:decode(Body) catch _:_ -> #{} end,
     Message = case Data of #{<<"message">> := M} when is_binary(M) -> string:lowercase(M); _ -> <<>> end,
     Header orelse lists:member(Message, [<<"two factor required">>,
         <<"two-factor authentication required">>,
-        <<"two factor authentication is required for this request">>]).
+        <<"two factor authentication is required for this request">>,
+        <<"two-factor authentication required. include x-hex-otp header with your totp code.">>,
+        <<"invalid two-factor authentication code">>]).
 
 %% A staged upload is accepted, but is not public. Keep that state distinct
 %% from both a rejected request and a published release. The Gleam publisher
@@ -331,7 +339,10 @@ response(Code, Headers, Body) ->
     Prefix = io_lib:format("Hex rejected the upload (HTTP ~p).", [Code]),
     Detail = response_detail(Body),
     Hint = case Code of
-        401 -> " Check HEX_API_KEY (or HEXPM_API_KEY).";
+        401 -> case verification(Headers, Body) of
+            true -> " Hex requested verification; set HEX_OTP to a fresh code and retry.";
+            false -> " Check HEX_API_KEY (or HEXPM_API_KEY)."
+        end;
         403 -> case verification(Headers, Body) of
             true -> " Hex requested verification; set HEX_OTP to a fresh code and retry.";
             false -> " Check the API key's publishing permissions."

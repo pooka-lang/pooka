@@ -152,6 +152,27 @@ pub fn verification_requires_an_explicit_challenge_and_has_a_budget_test() {
     response(403, [], "{\"message\":\"two factor required\"}")
   let assert Error(session.HttpFailure(401, _, True)) =
     response(401, [#("x-hex-otp", "required")], "{}")
+  list.each(["totp_required", "invalid_totp"], fn(code) {
+    let assert Error(session.HttpFailure(401, detail, True)) =
+      response(
+        401,
+        [
+          #(
+            "WWW-Authenticate",
+            "Bearer realm=\"hex\", error=\"" <> code <> "\"",
+          ),
+        ],
+        "{}",
+      )
+    assert string.contains(detail, "HEX_OTP")
+    assert !string.contains(detail, "Check HEX_API_KEY")
+  })
+  let assert Error(session.HttpFailure(429, _, False)) =
+    response(
+      429,
+      [],
+      "{\"message\":\"Too many failed two-factor authentication attempts. Please try again later.\"}",
+    )
   let io = session.Interaction(..quiet(), secret: fn(_) { Ok("654321") })
   let assert Ok(state) = session.start("key", "", True, quiet())
   let transport = fn(_, _, otp, _) {
