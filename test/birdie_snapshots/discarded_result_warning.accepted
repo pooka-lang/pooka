@@ -1,0 +1,13 @@
+---
+version: 2.0.2
+title: discarded Result warning
+---
+warning: discarded Result
+  ╭─ src/main.pooka:3:10
+  │
+3 │ main() { read()
+  │          ───┬──
+  │             ╰─ this Result is discarded, so its error will go unnoticed
+  ╰─
+help: Handle the Result with match or ?, or write `let _ =` to discard it explicitly.
+Found 1 warning.

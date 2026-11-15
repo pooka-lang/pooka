@@ -28,6 +28,7 @@
 import compiler/analysis/function_group
 import compiler/parser/ast
 import compiler/typesystem/class_infer
+import compiler/typesystem/discarded_result
 import compiler/typesystem/infer
 import compiler/typesystem/interface_infer
 import compiler/typesystem/monotype.{type Type}
@@ -306,7 +307,15 @@ pub fn infer(
     functions,
     list.reverse(progress.externals),
     progress.state,
-    diagnostic.sort(progress.diagnostics),
+    diagnostic.sort(
+      list.append(
+        progress.diagnostics,
+        case diagnostic.has_errors(progress.diagnostics) {
+          True -> []
+          False -> discarded_result.check(module, progress.state, path)
+        },
+      ),
+    ),
   ))
 }
 
