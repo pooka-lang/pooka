@@ -186,7 +186,6 @@ fn build_mode(
       Failure(Error(Nil), [project_error.to_diagnostic(error)])
     }),
   )
-  let snapshot = stamp.snapshot(graph, layout.mode_name(mode))
   let include_root = case scope {
     Whole -> True
     Entry(selector) ->
@@ -199,11 +198,11 @@ fn build_mode(
       )
   }
   case include_root {
-    True -> build_whole(graph, mode, snapshot)
-    // Without the root's modules the report is partial: it is never cached,
-    // and the cached whole-project report is not consulted either.
+    True -> build_cached(graph, mode, "build.cache", True)
+    // The dependencies alone, with a cache of their own: its key leaves out
+    // the root's modules, so editing them never invalidates it.
     False ->
-      compile_project(
+      build_cached(
         package.Graph(
           ..graph,
           packages: list.filter(graph.packages, fn(p) {
@@ -211,23 +210,25 @@ fn build_mode(
           }),
         ),
         mode,
-        snapshot,
+        "entry.cache",
         False,
       )
   }
 }
 
-fn build_whole(
+fn build_cached(
   graph: package.Graph,
   mode: layout.Mode,
-  snapshot: Result(stamp.Snapshot, Nil),
+  cache_name: String,
+  include_root: Bool,
 ) -> Result(Report, Failure) {
+  let snapshot = stamp.snapshot(graph, layout.mode_name(mode))
   let paths = layout.erlang(graph.root.root, graph.root.name, mode)
   let packages =
     list.map(graph.packages, fn(p) {
       layout.erlang(graph.root.root, native.application(p), mode).package
     })
-  let cache_path = filepath.join(paths.artifacts, "build.cache")
+  let cache_path = filepath.join(paths.artifacts, cache_name)
   let cached = case snapshot {
     Ok(snapshot) -> read_cached(cache_path, snapshot.key, packages)
     Error(_) -> Error(Nil)
@@ -244,7 +245,12 @@ fn build_whole(
         ),
       )
     Error(_) -> {
-      use report <- result.try(compile_project(graph, mode, snapshot, True))
+      use report <- result.try(compile_project(
+        graph,
+        mode,
+        snapshot,
+        include_root,
+      ))
 
       case snapshot {
         Ok(before) ->

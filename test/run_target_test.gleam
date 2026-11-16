@@ -293,6 +293,15 @@ pub fn a_dependency_tool_runs_while_the_project_does_not_compile_test() {
     assert string.contains(report.stderr, "Running tool.main")
   })
 
+  // Running the tool again reuses its build: the project is not its concern.
+  let again =
+    support.cli_main(
+      ["run", "-m", "tool", "--", "--help", "two words", ""],
+      env,
+    )
+  assert again.status == 0
+  assert !string.contains(again.stderr, "Compiling")
+
   // The project's own output is left exactly as it was.
   let assert Ok(after) = simplifile.read_directory(ebin)
   assert list.sort(after, string.compare) == list.sort(before, string.compare)

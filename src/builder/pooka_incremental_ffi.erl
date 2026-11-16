@@ -350,7 +350,8 @@ output(Packages) ->
 %% as source truth.
 artifact_tree(Directory) ->
     case file:list_dir(Directory) of
-        {ok,Names} -> lists:append([tree(filename:join(Directory,N)) || N <- lists:sort(Names),N =/= "build.cache"]);
+        %% Report caches describe outputs; they are not outputs themselves.
+        {ok,Names} -> lists:append([tree(filename:join(Directory,N)) || N <- lists:sort(Names),N =/= "build.cache",N =/= "entry.cache"]);
         {error,enoent} -> tree(Directory);
         _ -> erlang:error(unreadable_artifacts)
     end.
