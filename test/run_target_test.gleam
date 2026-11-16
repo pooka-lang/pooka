@@ -1,7 +1,9 @@
 //// Every package can keep its own front door.
 
+import builder/build
 import cli/command
 import gleam/list
+import gleam/option.{None, Some}
 import gleam/string
 import simplifile
 import support
@@ -252,4 +254,60 @@ pub fn selected_tools_own_colliding_options_and_internal_separators_test() {
   )
   assert support.cli_main(["run", "review"], env).status == 1
   assert support.cli_main(["run", "--help"], env).status == 0
+}
+
+pub fn only_unambiguous_selectors_name_a_dependency_test() {
+  let dependencies = ["tool", "tome"]
+  assert build.selects_dependency(Some("tool"), "app", dependencies)
+  assert build.selects_dependency(Some("tool:main"), "app", dependencies)
+  assert build.selects_dependency(Some("tool:tools/check"), "app", dependencies)
+  // The root's own entry points, and spellings a root module could share.
+  assert !build.selects_dependency(None, "app", dependencies)
+  assert !build.selects_dependency(Some("app"), "app", dependencies)
+  assert !build.selects_dependency(Some("app:main"), "app", dependencies)
+  assert !build.selects_dependency(Some("checker"), "app", dependencies)
+  assert !build.selects_dependency(Some("tool/main"), "app", dependencies)
+  assert !build.selects_dependency(Some("absent:main"), "app", dependencies)
+}
+
+pub fn a_dependency_tool_runs_while_the_project_does_not_compile_test() {
+  use directory <- support.with_directory("run_target_broken_root")
+  let env = setup(directory)
+  assert support.cli_main(["run"], env).stdout == "\"app\"\n"
+  let ebin = directory <> "/app/build/dev/erlang/app/ebin"
+  let assert Ok(before) = simplifile.read_directory(ebin)
+
+  // A code generator may well be the reason the project does not compile.
+  support.write(
+    directory <> "/app/src/main.pooka",
+    "module main\nmain() {\n  this is not pooka\n}\n",
+  )
+  list.each(["tool", "tool:main"], fn(selector) {
+    let report =
+      support.cli_main(
+        ["run", "-m", selector, "--", "--help", "two words", ""],
+        env,
+      )
+    assert report.status == 0
+    assert report.stdout == "\"tool\"\n"
+    assert string.contains(report.stderr, "Running tool.main")
+  })
+
+  // The project's own output is left exactly as it was.
+  let assert Ok(after) = simplifile.read_directory(ebin)
+  assert list.sort(after, string.compare) == list.sort(before, string.compare)
+
+  // Its own entry points still need it to compile, and say why they cannot run.
+  let own = support.cli_main(["run", "-m", "checker"], env)
+  assert own.status == 1
+  assert string.contains(own.stderr, "unexpected `is`")
+
+  // Once mended, the whole project builds and runs again.
+  support.write(
+    directory <> "/app/src/main.pooka",
+    "module main\nmessage() { \"app\" }\nmain() { echo \"app\" }\n",
+  )
+  assert support.cli_main(["run"], env).stdout == "\"app\"\n"
+  assert support.cli_main(["run", "-m", "checker"], env).stdout
+    == "\"checker\"\n"
 }

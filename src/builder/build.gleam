@@ -28,7 +28,7 @@ import diagnostics/diagnostic.{type Diagnostic}
 import filepath
 import gleam/dict
 import gleam/list
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import project/dependency
@@ -100,7 +100,49 @@ type PendingArtifact {
 /// pooka build
 /// ```
 pub fn build(directory: String) -> Result(Report, Failure) {
-  build_mode(directory, layout.Development)
+  build_mode(directory, layout.Development, Whole)
+}
+
+/// Build what `pooka run -m <selector>` needs. A selector that names a
+/// dependency, as a bare package name or as `package:module`, builds the
+/// dependencies without the root project's own modules: a tool such as a code
+/// generator must still run while the project it serves does not compile, and
+/// it should not wait for that project to compile first. Any other selector
+/// builds everything, as `build` does.
+///
+/// ```sh
+/// pooka run -m lexie -- init
+/// ```
+pub fn build_entry(
+  directory: String,
+  selector: Option(String),
+) -> Result(Report, Failure) {
+  build_mode(directory, layout.Development, Entry(selector))
+}
+
+/// Does this `-m` selector name an entry point in one of the dependencies,
+/// rather than in the root project? Only the two unambiguous spellings count;
+/// a path such as `tool/main` could also be a root module, so it keeps the
+/// full build and its ambiguity checks.
+///
+/// ```gleam
+/// selects_dependency(Some("lexie"), "app", ["lexie", "tome"]) // True
+/// selects_dependency(Some("lexie:main"), "app", ["lexie"]) // True
+/// selects_dependency(Some("checker"), "app", ["lexie"]) // False
+/// ```
+pub fn selects_dependency(
+  selector: Option(String),
+  root: String,
+  dependencies: List(String),
+) -> Bool {
+  case selector {
+    None -> False
+    Some(name) ->
+      case string.split_once(name, ":") {
+        Ok(#(owner, _)) -> owner != root && list.contains(dependencies, owner)
+        Error(Nil) -> name != root && list.contains(dependencies, name)
+      }
+  }
 }
 
 /// Build a test-capable source set so test execution can share checked package
@@ -110,7 +152,7 @@ pub fn build(directory: String) -> Result(Report, Failure) {
 /// pooka test
 /// ```
 pub fn build_tests(directory: String) -> Result(Report, Failure) {
-  build_mode(directory, layout.Development)
+  build_mode(directory, layout.Development, Whole)
 }
 
 /// Build the production source set used by exports without promoting test bodies
@@ -120,10 +162,20 @@ pub fn build_tests(directory: String) -> Result(Report, Failure) {
 /// pooka export escript
 /// ```
 pub fn build_production(directory: String) -> Result(Report, Failure) {
-  build_mode(directory, layout.Production)
+  build_mode(directory, layout.Production, Whole)
 }
 
-fn build_mode(directory: String, mode: layout.Mode) -> Result(Report, Failure) {
+/// What a build covers: everything, or what a selected entry point needs.
+type Scope {
+  Whole
+  Entry(selector: Option(String))
+}
+
+fn build_mode(
+  directory: String,
+  mode: layout.Mode,
+  scope: Scope,
+) -> Result(Report, Failure) {
   use graph <- result.try(
     {
       use root <- result.try(project.find_root(directory))
@@ -135,6 +187,41 @@ fn build_mode(directory: String, mode: layout.Mode) -> Result(Report, Failure) {
     }),
   )
   let snapshot = stamp.snapshot(graph, layout.mode_name(mode))
+  let include_root = case scope {
+    Whole -> True
+    Entry(selector) ->
+      !selects_dependency(
+        selector,
+        graph.root.name,
+        graph.packages
+          |> list.filter(fn(p) { p.name != graph.root.name })
+          |> list.map(fn(p) { p.name }),
+      )
+  }
+  case include_root {
+    True -> build_whole(graph, mode, snapshot)
+    // Without the root's modules the report is partial: it is never cached,
+    // and the cached whole-project report is not consulted either.
+    False ->
+      compile_project(
+        package.Graph(
+          ..graph,
+          packages: list.filter(graph.packages, fn(p) {
+            p.name != graph.root.name
+          }),
+        ),
+        mode,
+        snapshot,
+        False,
+      )
+  }
+}
+
+fn build_whole(
+  graph: package.Graph,
+  mode: layout.Mode,
+  snapshot: Result(stamp.Snapshot, Nil),
+) -> Result(Report, Failure) {
   let paths = layout.erlang(graph.root.root, graph.root.name, mode)
   let packages =
     list.map(graph.packages, fn(p) {
@@ -157,7 +244,7 @@ fn build_mode(directory: String, mode: layout.Mode) -> Result(Report, Failure) {
         ),
       )
     Error(_) -> {
-      use report <- result.try(compile_project(graph, mode, snapshot))
+      use report <- result.try(compile_project(graph, mode, snapshot, True))
 
       case snapshot {
         Ok(before) ->
@@ -193,6 +280,7 @@ fn compile_project(
   graph: package.Graph,
   mode: layout.Mode,
   snapshot: Result(stamp.Snapshot, Nil),
+  include_root: Bool,
 ) -> Result(Report, Failure) {
   let include_tests = mode == layout.Development
   use checked <- result.try(
@@ -343,7 +431,12 @@ fn compile_project(
     |> beam.compile_jobs
     |> result.map_error(fn(error) { failure(checked, error.0, error.1) }),
   )
-  let owners = list.append(checked.packages, [checked.project])
+  // A build for a dependency's entry point leaves the root's own output, its
+  // modules, application file and pruning, exactly as it was.
+  let owners = case include_root {
+    True -> list.append(checked.packages, [checked.project])
+    False -> checked.packages
+  }
   use native_library <- result.try(
     native.directory(paths.target)
     |> result.map_error(failure(checked, paths.target, _)),
@@ -589,6 +682,14 @@ fn compile_project(
   )
   use Nil <- result.try(migrate_legacy(checked))
   use Nil <- result.try(write_bits(checked, paths.fingerprint, fingerprint))
+  // A build for a dependency's entry point writes nothing else for the root,
+  // so its artefact folder may not exist yet.
+  use Nil <- result.try(
+    simplifile.create_directory_all(paths.artifacts)
+    |> result.map_error(fn(error) {
+      failure(checked, paths.artifacts, simplifile.describe_error(error))
+    }),
+  )
   let managed = filepath.join(paths.artifacts, "dependencies")
   let dependency_names =
     list.map(checked.packages, fn(p) { native.application(p) })

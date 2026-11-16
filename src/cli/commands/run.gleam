@@ -59,7 +59,9 @@ pub fn run(arguments: List(String), environment: Environment) -> Outcome {
   case selector {
     Ok(#(selector, program)) -> {
       let started = environment.clock()
-      case build.build(environment.working_directory) {
+      // A dependency's tool builds without the project's own modules, so it
+      // still runs while the project it serves does not compile.
+      case build.build_entry(environment.working_directory, selector) {
         Error(error) -> build_command.failure(error, environment)
         Ok(report) -> {
           let compiled = build_command.compiled(report, started, environment)
