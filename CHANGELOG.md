@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Report dependency runtime locations using package-qualified source names instead of internal `$package` paths, including exported programs and structured failure terms (#48).
+
 ## 0.3.1
 
 ### Fixed

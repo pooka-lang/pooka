@@ -222,6 +222,10 @@ pub fn debug_values(output: String) -> String {
             string.starts_with(path, "src/")
             || string.starts_with(path, "test/")
             || string.starts_with(path, "$package/")
+            || case string.split_once(path, ": ") {
+              Ok(#(_, relative)) -> string.starts_with(relative, "src/")
+              Error(_) -> False
+            }
           }
           && number != ""
           && list.all(string.to_graphemes(number), fn(c) {

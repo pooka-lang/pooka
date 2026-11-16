@@ -1,0 +1,6 @@
+---
+version: 2.0.2
+title: dependency echo package source location
+---
+tool: src/tool.pooka:2
+"hello"

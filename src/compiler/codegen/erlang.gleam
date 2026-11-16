@@ -451,7 +451,7 @@ fn generate_internal(
       f.node("attribute", 1, [f.Atom("module"), f.Atom(name)]),
       f.node("attribute", 1, [
         f.Atom("file"),
-        f.Tuple([f.Characters(path), f.Integer(1)]),
+        f.Tuple([f.Characters(source_location(path)), f.Integer(1)]),
       ]),
       f.node("attribute", 1, [f.Atom("export"), f.Sequence(exports)]),
       ..list.append(
@@ -461,6 +461,25 @@ fn generate_internal(
     ],
     list.reverse(tests),
   ))
+}
+
+/// Give a source address back to its author before putting it in a BEAM file
+/// attribute or a runtime error. Inference still uses the untouched internal
+/// path: changing that identity would make imported classes lose their owner.
+/// Package-relative labels also survive an escript moving to another machine.
+///
+/// ```text
+/// src/$package/tool/commands/run.pooka -> tool: src/commands/run.pooka
+/// src/main.pooka -> src/main.pooka
+/// ```
+///
+/// https://www.erlang.org/doc/apps/erts/absform.html#module-declarations-and-forms
+fn source_location(path: String) -> String {
+  case string.split(path, "/") {
+    ["src", "$package", owner, ..parts] ->
+      owner <> ": src/" <> string.join(parts, "/")
+    _ -> path
+  }
 }
 
 /// Give a source module its package-qualified BEAM identity. The separators
@@ -1044,7 +1063,7 @@ fn expression(
             Some(value) -> value
             None -> ast.StringLiteral("process terminated", span)
           },
-          ast.StringLiteral(context.path, span),
+          ast.StringLiteral(source_location(context.path), span),
           ast.IntLiteral(int.to_string(line), span),
         ],
         line,
@@ -1110,7 +1129,7 @@ fn expression(
                           expected,
                           found,
                           message,
-                          binary_text(context.path, line),
+                          binary_text(source_location(context.path), line),
                           f.node("integer", line, [f.Integer(line)]),
                         ],
                         line,
@@ -1377,7 +1396,7 @@ fn reference_outer(
                   "echo",
                   [
                     value,
-                    binary_text(context.path, line),
+                    binary_text(source_location(context.path), line),
                     f.node("integer", line, [f.Integer(line)]),
                   ],
                   line,
