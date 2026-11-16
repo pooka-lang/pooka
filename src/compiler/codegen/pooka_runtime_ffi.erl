@@ -23,10 +23,19 @@ remainder(A, B) when is_float(A), is_float(B) -> math:fmod(A, B).
 %% ```
 propagate({ok, Value}) -> Value;
 propagate({error, _} = Error) -> throw({pooka_return, Error}).
-panic(Message) -> erlang:error({pooka_panic, Message}).
+panic(Message) -> raise_user_error({pooka_panic, Message}).
 %% The source address survives a tail call even when its author's frame does not.
 %% panic(<<"boom">>, <<"src/main.pooka">>, 4) raises a tool-readable four-tuple.
-panic(Message, Path, Line) -> erlang:error({pooka_panic, Message, Path, Line}).
+panic(Message, Path, Line) -> raise_user_error({pooka_panic, Message, Path, Line}).
+
+%% Clean the actual exception stack, not just its eventual printed version.
+%% OTP loggers and supervisors see this same reason and stack. A tail-called
+%% panic may have no user frame left; its structured source address survives.
+%% https://www.erlang.org/doc/apps/erts/erlang.html#raise/3
+raise_user_error(Reason) ->
+    try erlang:error(Reason)
+    catch error:Reason:Stack -> erlang:raise(error,Reason,user_stack(Stack))
+    end.
 assert(true, _) -> nil;
 assert(false, Message) -> erlang:error({pooka_assert, Message}).
 %% Raise a structured assertion failure using operands already evaluated by generated code.
@@ -255,11 +264,18 @@ actor_start(Module, Class, Initializer, Arguments) ->
     Caller = self(),
     Ready = make_ref(),
     {Pid, Monitor} = spawn_monitor(fun() ->
-        Reference = {'$pooka_actor', Module, Class, self()},
-        put('$pooka_actor_reference', Reference),
-        erlang:apply(Module, Initializer, Arguments),
-        Caller ! {Ready, ready},
-        actor_loop(Module, Reference)
+        %% Ordinary foreign failures need the same boundary as Pooka panic.
+        %% Keep their class/reason and user frames while removing our dispatch
+        %% frames before the VM delivers the exit to monitors and supervisors.
+        try
+            Reference = {'$pooka_actor', Module, Class, self()},
+            put('$pooka_actor_reference', Reference),
+            erlang:apply(Module, Initializer, Arguments),
+            Caller ! {Ready, ready},
+            actor_loop(Module, Reference)
+        catch ClassOfFailure:Reason:Stack ->
+            erlang:raise(ClassOfFailure,Reason,user_stack(Stack))
+        end
     end),
     receive
         {Ready, ready} ->
@@ -533,7 +549,16 @@ spec_location(Stack) ->
     end.
 %% Keep compiler-private runtime source paths out of displayed traces. Each
 %% published package rewrites this module name, and ?MODULE follows that name.
-user_stack(Stack) -> [Frame || Frame = {Module, _, _, _} <- Stack, not runtime_frame(Module)].
+user_stack(Stack) -> lists:filter(fun user_frame/1,Stack).
+
+%% raise/3 also accepts frames without metadata and local-fun frames. Keep
+%% those foreign/user shapes intact rather than silently dropping their owner.
+user_frame({Module,_,_,_}) when is_atom(Module) -> not runtime_frame(Module);
+user_frame({Module,_,_}) when is_atom(Module) -> not runtime_frame(Module);
+user_frame({Function,_,_}) when is_function(Function) ->
+    {module,Module} = erlang:fun_info(Function,module),
+    not runtime_frame(Module);
+user_frame(_) -> false.
 runtime_frame(Module) ->
     Name = atom_to_list(Module),
     Module =:= ?MODULE orelse

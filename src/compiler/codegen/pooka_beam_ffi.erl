@@ -112,8 +112,8 @@ runtime_binary_for(Package) ->
             case persistent_term:get(Key, undefined) of
                 undefined ->
                     {ok, {_, [{abstract_code, {raw_abstract_v1, Forms}}]}} = beam_lib:chunks(Template, [abstract_code]),
-                    Scoped = [rename_runtime(F, Name) || F <- Forms],
-                    case compile:forms(Scoped, [binary, return_errors, return_warnings, debug_info]) of
+                    Scoped = [rename_runtime(runtime_source(F), Name) || F <- Forms],
+                    case compile:forms(Scoped, [binary, return_errors, return_warnings, debug_info, deterministic]) of
                         {ok, Name, Beam} -> persistent_term:put(Key, Beam), {ok, Beam};
                         {ok, Name, Beam, _} -> persistent_term:put(Key, Beam), {ok, Beam};
                         Error -> {error, format(Error)}
@@ -122,6 +122,20 @@ runtime_binary_for(Package) ->
             end;
         Error -> Error
     end.
+
+%% The template's file attribute remembers the compiler checkout. Give the
+%% generated helper a portable source name before compiling it; deterministic
+%% also keeps source/options out of its public compilation metadata.
+%%
+%% ```erlang
+%% {attribute,L,file,{"/builder/work/pooka_runtime_ffi.erl",1}}
+%% % becomes {attribute,L,file,{"pooka_runtime_ffi.erl",1}}
+%% ```
+%% https://www.erlang.org/doc/apps/erts/absform.html#module-declarations-and-forms
+%% https://www.erlang.org/doc/apps/compiler/compile.html
+runtime_source({attribute,Annotation,file,{_Path,Line}}) ->
+    {attribute,Annotation,file,{"pooka_runtime_ffi.erl",Line}};
+runtime_source(Form) -> Form.
 
 runtime_name(Package) when is_binary(Package) ->
     binary_to_atom(<<"pooka@", Package/binary, "@@runtime">>, utf8);
