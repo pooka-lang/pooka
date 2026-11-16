@@ -87,6 +87,14 @@ pub fn parse(arguments: List(String)) -> Command {
     ["help", "--help"] | ["help", "-h"] -> CommandHelp(["help"])
     ["help", ..path] -> CommandHelp(path)
     ["version"] | ["-V"] | ["--version"] -> Version
+    // Once a run target has been supplied, even --help belongs to that tool.
+    ["run", flag, target, ..rest]
+      if { flag == "-m" || flag == "--module" }
+      && target != ""
+      && target != "--"
+      && target != "-h"
+      && target != "--help"
+    -> Run([flag, target, ..rest])
     [name, ..rest] -> {
       let #(own, _) = list.split_while(rest, fn(arg) { arg != "--" })
       case list.any(own, fn(arg) { arg == "-h" || arg == "--help" }) {

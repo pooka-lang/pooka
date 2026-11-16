@@ -201,3 +201,55 @@ pub fn ambiguity_lists_only_runnable_modules_test() {
   assert runnable.status == 0
   assert string.contains(runnable.stderr, "Running tool.shared")
 }
+
+pub fn selected_development_tools_accept_arguments_without_a_separator_test() {
+  use directory <- support.with_directory("run_target_unseparated_arguments")
+  let env = setup(directory)
+  list.each(["-m", "--module"], fn(flag) {
+    let report =
+      support.cli_main(["run", flag, "tool", "--help", "two words", ""], env)
+    assert report.status == 0
+    assert report.stdout == "\"tool\"\n"
+  })
+}
+
+pub fn selected_tools_own_colliding_options_and_internal_separators_test() {
+  use directory <- support.with_directory("run_target_colliding_options")
+  let env = setup(directory)
+  support.write(
+    directory <> "/tool/src/main.pooka",
+    "module main\nexternal Args from erlang \"tool_args\" { get() -> List(String) }\nmessage() { \"tool\" }\nmain() { echo Args.get() }\n",
+  )
+  list.each(
+    [
+      [
+        "review",
+        "--verbose",
+        "-m",
+        "another",
+        "--module",
+        "other",
+        "--",
+        "--help",
+        "",
+      ],
+      ["--help"],
+      ["-h"],
+      ["--module", "other"],
+      ["-m", "other"],
+    ],
+    fn(arguments) {
+      let direct =
+        support.cli_main(list.append(["run", "-m", "tool"], arguments), env)
+      let separated =
+        support.cli_main(
+          list.append(["run", "-m", "tool", "--"], arguments),
+          env,
+        )
+      assert direct.status == 0
+      assert direct.stdout == separated.stdout
+    },
+  )
+  assert support.cli_main(["run", "review"], env).status == 1
+  assert support.cli_main(["run", "--help"], env).status == 0
+}

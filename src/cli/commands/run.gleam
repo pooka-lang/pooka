@@ -26,7 +26,7 @@ import utilities/colour
 pub const info =
   Info(
     name: "run",
-    arguments: "[-m <module|package>] [-- <arguments>]",
+    arguments: "[-m <module|package>] [--] [<arguments>...]",
     summary: "Build and execute main()",
   )
 
@@ -38,15 +38,26 @@ pub const info =
 /// pooka run -- one two
 /// ```
 pub fn run(arguments: List(String), environment: Environment) -> Outcome {
-  let #(own, program) =
-    list.split_while(arguments, fn(argument) { argument != "--" })
-  let selector = case own {
-    [] -> Ok(None)
-    ["-m", name] | ["--module", name] if name != "" -> Ok(Some(name))
+  let #(own, _) = list.split_while(arguments, fn(arg) { arg != "--" })
+  // A selected tool owns everything after its name, including flags that look
+  // like ours. A leading separator remains optional for existing scripts.
+  let selector = case arguments {
+    [] -> Ok(#(None, []))
+    ["--", ..program] -> Ok(#(None, program))
+    ["-m", name, ..rest]
+      | ["--module", name, ..rest]
+      if name != "" && name != "--" && name != "-h" && name != "--help"
+    ->
+      Ok(
+        #(Some(name), case rest {
+          ["--", ..program] -> program
+          _ -> rest
+        }),
+      )
     _ -> Error(Nil)
   }
   case selector {
-    Ok(selector) -> {
+    Ok(#(selector, program)) -> {
       let started = environment.clock()
       case build.build(environment.working_directory) {
         Error(error) -> build_command.failure(error, environment)
@@ -67,7 +78,7 @@ pub fn run(arguments: List(String), environment: Environment) -> Outcome {
                     beam.execute_inherited(
                       target.directory,
                       entry,
-                      list.drop(program, 1),
+                      program,
                       environment.stderr == colour.Ansi,
                     )
                   {
@@ -80,7 +91,7 @@ pub fn run(arguments: List(String), environment: Environment) -> Outcome {
                     beam.execute(
                       target.directory,
                       entry,
-                      list.drop(program, 1),
+                      program,
                       environment.stderr == colour.Ansi,
                     )
                   {

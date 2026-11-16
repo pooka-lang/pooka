@@ -278,7 +278,7 @@ fn details(name: String, rest: List(String)) -> Result(#(String, String), Nil) {
     "run", [] ->
       Ok(#(
         " [-- <arguments>...]",
-        "Build and execute a checked main(). Arguments after -- go to the program.\n\nOptions:\n  -m, --module <module|package>  Select a project or dependency entry point\n\nExamples:\n  pooka run -- --help\n  pooka run -m tool -- init\n  pooka run -m tool:main -- init\n\n",
+        "Build and execute a checked main(). After -m <target>, remaining arguments go to the selected program. Otherwise use -- before program arguments.\n\nOptions:\n  -m, --module <module|package>  Select a project or dependency entry point\n\nExamples:\n  pooka run -- --help\n  pooka run -m tool init\n  pooka run -m tool:main init\n\n",
       ))
     "test", [] ->
       Ok(#(

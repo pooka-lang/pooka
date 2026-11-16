@@ -585,3 +585,14 @@ pub fn fresh_project_can_import_its_default_stdlib_dependency_test() {
   assert report.stdout == "42\n"
   assert simplifile.read(root <> "/pooka.toml") == Ok(before)
 }
+
+pub fn selected_run_targets_receive_their_own_help_and_option_names_test() {
+  assert cli.parse(["run", "-m", "tool", "--help"])
+    == cli.Run(["-m", "tool", "--help"])
+  assert cli.parse(["run", "--module", "tool", "-h"])
+    == cli.Run(["--module", "tool", "-h"])
+  assert cli.parse(["run", "-m", "tool", "--module", "other"])
+    == cli.Run(["-m", "tool", "--module", "other"])
+  assert cli.parse(["run", "--help"]) == cli.CommandHelp(["run"])
+  assert cli.parse(["run", "-m", "--help"]) == cli.CommandHelp(["run"])
+}

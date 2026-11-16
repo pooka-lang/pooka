@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Forward arguments after `pooka run -m <target>` without requiring `--`, including tool-owned help and option names. Preserve explicit separators and the default program's argument rules.
+
 - Keep generated runtime metadata portable and remove private runtime frames from actor and supervisor crash reports while preserving foreign source frames (#49).
 
 - Report dependency runtime locations using package-qualified source names instead of internal `$package` paths, including exported programs and structured failure terms (#48).
