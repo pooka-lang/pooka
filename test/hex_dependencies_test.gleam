@@ -8,6 +8,7 @@
 import builder/build
 import builder/escript
 import builder/shipment
+import cli/cli as raw_cli
 import cli/command
 import gleam/bit_array
 import gleam/dict
@@ -17,6 +18,7 @@ import gleam/list
 import gleam/order
 import gleam/result
 import gleam/string
+import pooka
 import project/config
 import project/dependency as d
 import project/hex
@@ -797,3 +799,42 @@ pub fn elixir_hex_packages_use_the_already_built_dependency_graph_test() {
 
 @external(erlang, "incremental_test_ffi", "with_environment")
 fn with_environment(name: String, value: String, run: fn() -> a) -> a
+
+pub fn cached_hex_pooka_locations_keep_the_package_source_name_test() {
+  use directory <- support.with_directory("hex_pooka_source_locations")
+  let _ =
+    prepare(directory, "tool", "tool", "pooka", [
+      #("pooka.toml", "name = \"tool\"\nversion = \"1.0.0\"\n"),
+      #(
+        "src/tool.pooka",
+        "module tool\ngreeting() { echo \"hello\" }\nexplode() { panic as \"boom\" }\n",
+      ),
+      #(
+        "src/main.pooka",
+        "module main\nimport tool\nmain() { tool.greeting() }\n",
+      ),
+    ])
+  let app = directory <> "/app"
+  support.write(
+    app <> "/src/main.pooka",
+    "module main\nimport tool\nmain() { tool.greeting() }\n",
+  )
+  let env = command.plain(app)
+  list.each([["run"], ["run", "-m", "tool"]], fn(args) {
+    let report = raw_cli.main(args, pooka.version, env)
+    assert report.status == 0
+    assert string.contains(
+      report.stdout <> report.stderr,
+      "tool: src/tool.pooka:2",
+    )
+    assert !string.contains(report.stdout <> report.stderr, "$package")
+  })
+  support.write(
+    app <> "/src/main.pooka",
+    "module main\nimport tool\nmain() { tool.explode() }\n",
+  )
+  let failure = support.cli_main(["run"], env)
+  assert failure.status == 1
+  assert string.contains(failure.stderr, "tool: src/tool.pooka:3")
+  assert !string.contains(failure.stderr, "$package")
+}
