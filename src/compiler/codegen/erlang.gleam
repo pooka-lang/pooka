@@ -1680,6 +1680,92 @@ fn lower_branches(
   }
 }
 
+/// Plain arms can share one Erlang case. Leave guards and alternative selectors
+/// on their ordered path: a Pooka guard may call a function or have effects.
+///
+/// ```erlang
+/// case Bytes of <<13,10,Rest/binary>> -> read(Rest); <<>> -> done end
+/// ```
+///
+/// Erlang abstract format: https://www.erlang.org/doc/apps/erts/absform.html#expressions.
+fn ordinary_branches(
+  values: List(ast.Branch),
+  subject: f.Term,
+  line: Int,
+  context: Context,
+) -> Result(#(f.Term, Context), Unsupported) {
+  case
+    list.all(values, fn(branch) {
+      branch.guard == None
+      && case branch.pattern {
+        ast.AlternativePattern(..) -> False
+        _ -> True
+      }
+    })
+  {
+    True -> direct_branches(values, subject, line, context)
+    False -> sequential_branches(values, subject, line, context)
+  }
+}
+
+/// Keep branch-local bindings separate while carrying the fresh-name counter
+/// forward. This gives BEAM the ordered clauses directly, without allocating a
+/// fallback fun at every arm or obstructing its binary-match optimisations.
+///
+/// ```text
+/// {case,Line,Subject,[{clause,Line,[Pattern],[],[Body]}, ...]}
+/// ```
+///
+/// Erlang abstract format: https://www.erlang.org/doc/apps/erts/absform.html#clauses.
+fn direct_branches(
+  values: List(ast.Branch),
+  subject: f.Term,
+  line: Int,
+  context: Context,
+) -> Result(#(f.Term, Context), Unsupported) {
+  let outer = context.locals
+  use #(reversed, context) <- result.try(
+    list.try_fold(values, #([], context), fn(acc, branch) {
+      use #(pattern, context) <- result.try(lower_pattern(
+        branch.pattern,
+        Context(..acc.1, locals: outer),
+      ))
+      use #(body, context) <- result.try(expression(branch.body, context))
+      Ok(#([f.clause([pattern], [body], line), ..acc.0], context))
+    }),
+  )
+  let clauses = list.reverse(reversed)
+  let clauses = case
+    list.any(values, fn(branch) {
+      case branch.pattern {
+        ast.VariablePattern(..) | ast.DiscardPattern(..) -> True
+        _ -> False
+      }
+    })
+  {
+    True -> clauses
+    False ->
+      list.append(clauses, [
+        f.clause(
+          [f.variable("_", line)],
+          [
+            f.remote(
+              "erlang",
+              "error",
+              [f.atom("pooka_match_failure", line)],
+              line,
+            ),
+          ],
+          line,
+        ),
+      ])
+  }
+  Ok(#(
+    f.node("case", line, [subject, f.Sequence(clauses)]),
+    Context(..context, locals: outer),
+  ))
+}
+
 /// Build ordinary case clauses with lowered patterns, guards and bodies. A guard
 /// list is a list of alternative guard sequences.
 ///
@@ -1688,7 +1774,7 @@ fn lower_branches(
 /// ```
 ///
 /// Erlang abstract format: https://www.erlang.org/doc/apps/erts/absform.html#clauses.
-fn ordinary_branches(
+fn sequential_branches(
   values: List(ast.Branch),
   subject: f.Term,
   line: Int,

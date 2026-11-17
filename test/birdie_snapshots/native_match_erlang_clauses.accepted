@@ -1,0 +1,51 @@
+---
+version: 2.0.2
+title: native match erlang clauses
+---
+-module(pooka@app@main).
+-file("src/main.pooka", 1).
+-export([read/1,first/1]).
+read(M0) ->
+    begin
+        begin
+            M1 = M0,
+            case M1 of
+                <<13,10,M2/binary>> ->
+                    begin
+                        M3 = fun read/1,
+                        M4 = M2,
+                        M3(M4)
+                    end;
+                <<_,M5/binary>> ->
+                    begin
+                        M6 = 1,
+                        M9 =
+                            begin
+                                M7 = fun read/1,
+                                M8 = M5,
+                                M7(M8)
+                            end,
+                        M6 + M9
+                    end;
+                <<>> ->
+                    0;
+                _ ->
+                    -1
+            end
+        end
+    end.
+first(M11) ->
+    begin
+        begin
+            M12 = M11,
+            case M12 of
+                [M13 | M14] ->
+                    M13;
+                [] ->
+                    0;
+                _ ->
+                    error(pooka_match_failure)
+            end
+        end
+    end.
+
