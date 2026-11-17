@@ -10,19 +10,11 @@ read(M0) ->
         begin
             M1 = M0,
             begin
-                M6 =
+                M5 =
                     fun() ->
-                           begin
-                               M5 =
-                                   fun() ->
-                                          error(pooka_match_failure)
-                                   end,
-                               case M1 of
-                                   _ ->
-                                       0;
-                                   _ ->
-                                       M5()
-                               end
+                           case M1 of
+                               _ ->
+                                   0
                            end
                     end,
                 case
@@ -38,7 +30,7 @@ read(M0) ->
                     {matched, M4} ->
                         M4;
                     _ ->
-                        M6()
+                        M5()
                 end
             end
         end
