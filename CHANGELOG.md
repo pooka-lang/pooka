@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Lower safe match guards as native Erlang clause guards while retaining ordered evaluation for calls, division, string concatenation, and floating-point arithmetic (#55).
+
 - Emit direct calls for unshadowed local functions so Erlang can reuse binary match contexts in recursive scans (#54).
 
 - Compile ordinary unguarded match arms as native Erlang case clauses, avoiding per-arm fallback closures while preserving ordered guarded and alternative matches (#52).

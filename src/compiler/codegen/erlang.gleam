@@ -1723,8 +1723,8 @@ fn lower_branches(
   }
 }
 
-/// Plain arms can share one Erlang case. Leave guards and alternative selectors
-/// on their ordered path: a Pooka guard may call a function or have effects.
+/// Plain arms and safe guards can share one Erlang case. Keep arbitrary calls
+/// and alternative selectors ordered: a Pooka guard may have effects.
 ///
 /// ```erlang
 /// case Bytes of <<13,10,Rest/binary>> -> read(Rest); <<>> -> done end
@@ -1739,15 +1739,106 @@ fn ordinary_branches(
 ) -> Result(#(f.Term, Context), Unsupported) {
   case
     list.all(values, fn(branch) {
-      branch.guard == None
-      && case branch.pattern {
+      case branch.pattern {
         ast.AlternativePattern(..) -> False
         _ -> True
       }
     })
   {
-    True -> direct_branches(values, subject, line, context)
+    True ->
+      case direct_branches(values, subject, line, context) {
+        Ok(Some(lowered)) -> Ok(lowered)
+        Ok(None) -> sequential_branches(values, subject, line, context)
+        Error(problem) -> Error(problem)
+      }
     False -> sequential_branches(values, subject, line, context)
+  }
+}
+
+/// Lower a Pooka guard as an Erlang clause guard when Erlang would evaluate it
+/// exactly as Pooka does: literals, local variables, comparisons, boolean
+/// operators, and arithmetic that cannot raise. Anything else, including a
+/// call, a division that could fail quietly in a guard, or a member reference,
+/// returns None and keeps the ordered path.
+///
+/// ```erlang
+/// <<C, Rest/binary>> when C >= 48 andalso C =< 57 -> digits(Rest)
+/// ```
+///
+/// Erlang guards: https://www.erlang.org/doc/system/expressions.html#guard-expressions.
+fn guard_term(value: ast.Expression, context: Context) -> Option(f.Term) {
+  let line = ast.expression_span(value).start.line
+  case value {
+    ast.IntLiteral(..)
+    | ast.FloatLiteral(..)
+    | ast.BoolLiteral(..)
+    | ast.NilLiteral(..)
+    | ast.StringLiteral(..) ->
+      case expression(value, context) {
+        Ok(#(term, _)) -> Some(term)
+        Error(_) -> None
+      }
+    ast.Variable(name, _) -> option.from_result(dict.get(context.locals, name))
+    ast.Unary(operator, operand, _) -> {
+      use operand <- option.then(guard_term(operand, context))
+      Some(
+        f.node("op", line, [
+          f.Atom(case operator {
+            ast.Negate -> "-"
+            ast.Not -> "not"
+          }),
+          operand,
+        ]),
+      )
+    }
+    ast.Binary(operator, left, right, _) -> {
+      use name <- option.then(guard_operator(operator, left, context))
+      use left <- option.then(guard_term(left, context))
+      use right <- option.then(guard_term(right, context))
+      Some(f.node("op", line, [f.Atom(name), left, right]))
+    }
+    _ -> None
+  }
+}
+
+/// The Erlang operator for a Pooka operator in a guard. String `+` builds a
+/// binary and Float arithmetic may overflow. `/` and `%` can fail on zero.
+/// A failing guard is just false in
+/// Erlang, and the remainder follows a runtime helper; these stay ordered.
+fn guard_operator(
+  operator: ast.BinaryOperator,
+  left: ast.Expression,
+  context: Context,
+) -> Option(String) {
+  case operator {
+    ast.Equal -> Some("=:=")
+    ast.NotEqual -> Some("=/=")
+    ast.Less -> Some("<")
+    ast.LessOrEqual -> Some("=<")
+    ast.Greater -> Some(">")
+    ast.GreaterOrEqual -> Some(">=")
+    ast.And -> Some("andalso")
+    ast.Or -> Some("orelse")
+
+    ast.BitAnd -> Some("band")
+    ast.BitOr -> Some("bor")
+    ast.Add | ast.Subtract | ast.Multiply ->
+      case
+        unify.expression_type(
+          context.state,
+          context.path,
+          ast.expression_span(left),
+        )
+      {
+        Ok(monotype.IntType) ->
+          Some(case operator {
+            ast.Add -> "+"
+            ast.Subtract -> "-"
+            _ -> "*"
+          })
+        _ -> None
+      }
+    ast.Divide | ast.Remainder | ast.PipeOperator -> None
   }
 }
 
@@ -1765,22 +1856,72 @@ fn direct_branches(
   subject: f.Term,
   line: Int,
   context: Context,
-) -> Result(#(f.Term, Context), Unsupported) {
+) -> Result(Option(#(f.Term, Context)), Unsupported) {
   let outer = context.locals
   use #(reversed, context) <- result.try(
-    list.try_fold(values, #([], context), fn(acc, branch) {
-      use #(pattern, context) <- result.try(lower_pattern(
-        branch.pattern,
-        Context(..acc.1, locals: outer),
-      ))
-      use #(body, context) <- result.try(expression(branch.body, context))
-      Ok(#([f.clause([pattern], [body], line), ..acc.0], context))
+    list.try_fold(values, #(Some([]), context), fn(acc, branch) {
+      case acc.0 {
+        None -> Ok(acc)
+        Some(done) -> {
+          use #(pattern, context) <- result.try(lower_pattern(
+            branch.pattern,
+            Context(..acc.1, locals: outer),
+          ))
+          let guard = case branch.guard {
+            None -> Some([])
+            Some(guard) ->
+              guard_term(guard, context)
+              |> option.map(fn(term) { [f.Sequence([term])] })
+          }
+          case guard {
+            None -> Ok(#(None, context))
+            Some(guard) -> {
+              use #(body, context) <- result.try(expression(
+                branch.body,
+                context,
+              ))
+              let clause =
+                f.node("clause", line, [
+                  f.Sequence([pattern]),
+                  f.Sequence(guard),
+                  f.Sequence([body]),
+                ])
+              Ok(#(Some([clause, ..done]), context))
+            }
+          }
+        }
+      }
     }),
   )
-  let clauses = list.reverse(reversed)
+  case reversed {
+    None -> Ok(None)
+    Some(reversed) ->
+      Ok(
+        Some(direct_case(
+          values,
+          list.reverse(reversed),
+          subject,
+          line,
+          context,
+          outer,
+        )),
+      )
+  }
+}
+
+fn direct_case(
+  values: List(ast.Branch),
+  clauses: List(f.Term),
+  subject: f.Term,
+  line: Int,
+  context: Context,
+  outer: Dict(String, f.Term),
+) -> #(f.Term, Context) {
+  // A catch-all without a guard ends the clauses; a guarded one does not.
   let clauses = case
     list.any(values, fn(branch) {
-      case branch.pattern {
+      branch.guard == None
+      && case branch.pattern {
         ast.VariablePattern(..) | ast.DiscardPattern(..) -> True
         _ -> False
       }
@@ -1803,10 +1944,10 @@ fn direct_branches(
         ),
       ])
   }
-  Ok(#(
+  #(
     f.node("case", line, [subject, f.Sequence(clauses)]),
     Context(..context, locals: outer),
-  ))
+  )
 }
 
 /// Build ordinary case clauses with lowered patterns, guards and bodies. A guard
