@@ -884,19 +884,37 @@ fn expression(
     //
     // https://www.erlang.org/doc/apps/erts/absform.html#expressions
     ast.Call(callee, arguments, _) -> {
-      use #(bindings, values, context) <- result.try(evaluate(
-        [callee, ..arguments],
-        context,
-      ))
-      let assert [callee, ..arguments] = values
-      Ok(#(
-        sequence(
-          bindings,
-          f.node("call", line, [callee, f.Sequence(arguments)]),
-          line,
-        ),
-        context,
-      ))
+      case direct_local(callee, context) {
+        Some(name) -> {
+          use #(bindings, arguments, context) <- result.try(evaluate(
+            arguments,
+            context,
+          ))
+          Ok(#(
+            sequence(
+              bindings,
+              f.node("call", line, [f.atom(name, line), f.Sequence(arguments)]),
+              line,
+            ),
+            context,
+          ))
+        }
+        None -> {
+          use #(bindings, values, context) <- result.try(evaluate(
+            [callee, ..arguments],
+            context,
+          ))
+          let assert [callee, ..arguments] = values
+          Ok(#(
+            sequence(
+              bindings,
+              f.node("call", line, [callee, f.Sequence(arguments)]),
+              line,
+            ),
+            context,
+          ))
+        }
+      }
     }
     // A tuple counts its pockets from zero in Pooka and from one in Erlang.
     // The checked index is constant; evaluate its receiver exactly once.
@@ -1312,6 +1330,31 @@ fn namespace_function(
     |> result.map_error(fn(_) { Unsupported(span, "unknown external function") }),
   )
   Ok(#(function_reference(reference, span.start.line), context))
+}
+
+/// A known top-level local function has no callee evaluation effects. Name it
+/// directly at a call site so Core Erlang can see recursive binary consumers
+/// before its match-context reuse pass. Bound functions and class-scope names
+/// retain their existing value/implicit-member resolution.
+///
+/// ```erlang
+/// scan(Rest) % {call,Line,{atom,Line,scan},[Rest]}
+/// ```
+///
+/// Erlang abstract format: https://www.erlang.org/doc/apps/erts/absform.html#expressions.
+fn direct_local(value: ast.Expression, context: Context) -> Option(String) {
+  case value, context.class {
+    ast.Variable(name, _), None ->
+      case dict.has_key(context.locals, name) {
+        True -> None
+        False ->
+          case dict.get(context.functions, name) {
+            Ok(Local(name, _)) -> Some(name)
+            _ -> None
+          }
+      }
+    _, _ -> None
+  }
 }
 
 /// Turn a callable reference into a local or remote fun expression. A value

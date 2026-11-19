@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Emit direct calls for unshadowed local functions so Erlang can reuse binary match contexts in recursive scans (#54).
+
 - Compile ordinary unguarded match arms as native Erlang case clauses, avoiding per-arm fallback closures while preserving ordered guarded and alternative matches (#52).
 
 - Build only the dependencies when `pooka run -m` selects a dependency's entry point, by package name or as `package:module`. A development tool such as a code generator now runs while the project it serves does not compile, and no longer waits for that project to compile first. The root project's output is left untouched, and the partial build is never cached.
