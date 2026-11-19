@@ -95,3 +95,19 @@ pub fn non_catch_all_native_matches_keep_the_runtime_failure_clause_test() {
   assert funs(f.Sequence(generated.forms)) == 0
   assert string.contains(text, "pooka_match_failure")
 }
+
+pub fn local_function_calls_name_the_function_directly_test() {
+  let generated = generate("step(n: Int) -> Int { n + 1 }\nmain() { step(2) }")
+  let text = beam.pretty(generated.forms)
+  assert string.contains(text, "step(")
+  assert !string.contains(text, "fun step/1")
+}
+
+pub fn local_function_values_and_shadowing_keep_their_meaning_test() {
+  let outcome =
+    run(
+      "direct_call_shadowing",
+      "step(n: Int) -> Int { n + 1 }\napply(step: fn(Int) -> Int) { step(5) }\nmain() { let saved = step\nlet step = fn(n: Int) { n * 2 }\nassert step(4) == 8\nassert saved(4) == 5\nassert apply(step) == 10 }",
+    )
+  assert outcome.status == 0
+}

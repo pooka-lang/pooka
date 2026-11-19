@@ -12,20 +12,18 @@ read(M0) ->
             case M1 of
                 <<13,10,M2/binary>> ->
                     begin
-                        M3 = fun read/1,
-                        M4 = M2,
-                        M3(M4)
+                        M3 = M2,
+                        read(M3)
                     end;
-                <<_,M5/binary>> ->
+                <<_,M4/binary>> ->
                     begin
-                        M6 = 1,
-                        M9 =
+                        M5 = 1,
+                        M7 =
                             begin
-                                M7 = fun read/1,
-                                M8 = M5,
-                                M7(M8)
+                                M6 = M4,
+                                read(M6)
                             end,
-                        M6 + M9
+                        M5 + M7
                     end;
                 <<>> ->
                     0;
@@ -34,13 +32,13 @@ read(M0) ->
             end
         end
     end.
-first(M11) ->
+first(M9) ->
     begin
         begin
-            M12 = M11,
-            case M12 of
-                [M13 | M14] ->
-                    M13;
+            M10 = M9,
+            case M10 of
+                [M11 | M12] ->
+                    M11;
                 [] ->
                     0;
                 _ ->

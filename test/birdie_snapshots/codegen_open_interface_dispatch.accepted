@@ -1,8 +1,6 @@
 ---
 version: 2.0.2
 title: codegen open interface dispatch
-file: ./test/interface_semantics_test.gleam
-test_name: interface_dispatch_abstract_forms_snapshot_test
 ---
 -module(pooka@app@main).
 -file("src/main.pooka", 1).
@@ -38,13 +36,12 @@ render(M3) ->
 main() ->
     begin
         begin
-            M8 = fun render/1,
-            M10 =
+            M9 =
                 begin
-                    M9 = fun '$class@User@new'/0,
-                    M9()
+                    M8 = fun '$class@User@new'/0,
+                    M8()
                 end,
-            M8(M10)
+            render(M9)
         end
     end.
 
