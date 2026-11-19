@@ -111,3 +111,60 @@ pub fn local_function_values_and_shadowing_keep_their_meaning_test() {
     )
   assert outcome.status == 0
 }
+
+pub fn guard_safe_guards_become_erlang_clause_guards_test() {
+  let generated =
+    generate(
+      "digits(bytes: BitArray, total: Int) -> Int { match bytes { <<c, rest:bytes>> if c >= 48 && c <= 57 -> digits(rest, total * 10 + c - 48)\n<<>> -> total\n_ -> -1 } }",
+    )
+  assert funs(f.Sequence(generated.forms)) == 0
+}
+
+pub fn guards_erlang_cannot_evaluate_keep_the_ordered_path_test() {
+  let generated =
+    generate(
+      "even(n: Int) -> Bool { n % 2 == 0 }\npick(values: List(Int)) -> Int { match values { [n, ..] if even(n) -> n\n[n, ..] if n / 2 > 1.0 -> n + 1\n_ -> 0 } }",
+    )
+  assert funs(f.Sequence(generated.forms)) > 0
+}
+
+pub fn native_guards_fall_through_in_order_and_see_pattern_and_outer_bindings_test() {
+  let result =
+    run(
+      "native_match_guards",
+      "classify(pair: #(Int, Int), limit: Int) -> String { match pair { #(a, b) if a > limit && b > limit -> \"both\"\n#(a, _) if a > limit -> \"first\"\n#(_, b) if b > limit || b == -1 -> \"second\"\n#(a, b) if a == b -> \"same\"\n_ -> \"neither\" } }\nmain() { assert classify(#(5, 6), 3) == \"both\"\nassert classify(#(5, 1), 3) == \"first\"\nassert classify(#(1, 9), 3) == \"second\"\nassert classify(#(1, -1), 3) == \"second\"\nassert classify(#(2, 2), 3) == \"same\"\nassert classify(#(1, 2), 3) == \"neither\" }",
+    )
+  assert result.status == 0
+  assert support.diagnostics(result.stderr) == ""
+}
+
+pub fn a_guard_that_fails_every_arm_is_a_match_failure_test() {
+  let result =
+    run(
+      "native_match_guard_failure",
+      "pick(n: Int) -> Int { match n { x if x > 10 -> x\n0 -> 0 } }\nmain() { assert pick(11) == 11\nassert pick(0) == 0\nlet _ = pick(5) }",
+    )
+  assert result.status != 0
+}
+
+pub fn floating_arithmetic_guards_keep_errors_on_the_ordered_path_test() {
+  let generated =
+    generate(
+      "pick(n: Float) -> Int { match n { x if x * x > 1.0 -> 1\n_ -> 0 } }",
+    )
+  assert funs(f.Sequence(generated.forms)) > 0
+  let outcome =
+    run(
+      "overflowing_match_guard",
+      "pick(n: Float) -> Int { match n { x if x * x > 1.0 -> 1\n_ -> 0 } }\nmain() { let _ = pick(1.0e308) }",
+    )
+  assert outcome.status != 0
+}
+
+pub fn integer_arithmetic_and_boolean_guards_need_no_fallback_funs_test() {
+  let generated =
+    generate(
+      "pick(n: Int, enabled: Bool) -> Int { match n { x if !enabled || ((x + 2) * 3 - 1 & 7 | 8) != 0 -> x\n_ -> 0 } }",
+    )
+  assert funs(f.Sequence(generated.forms)) == 0
+}
