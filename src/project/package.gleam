@@ -187,7 +187,9 @@ fn search(
             ])
           use Nil <- result.try(case dict.get(chosen, name) {
             Error(_) -> Ok(Nil)
-            Ok(p) -> check_hex(p, requirement) |> result.map_error(failure)
+            Ok(p) ->
+              check_hex(p, requirement, root, include_dev)
+              |> result.map_error(failure)
           })
           search(
             root,
@@ -205,7 +207,8 @@ fn search(
             Ok(existing) -> {
               use Nil <- result.try(case dep {
                 dependency.Hex(_, requirement, _) ->
-                  check_hex(existing, requirement) |> result.map_error(failure)
+                  check_hex(existing, requirement, root, include_dev)
+                  |> result.map_error(failure)
                 _ -> {
                   use requested <- result.try(source(
                     owner,
@@ -243,10 +246,21 @@ fn search(
               )
             }
             Error(_) -> {
+              // The root chooses a source for the whole graph. Resolve it even
+              // when a transitive Hex request happens to arrive first; the
+              // original request still supplies its version constraint below.
+              let #(source_owner, selected) = case dep {
+                dependency.Hex(name, _, _) ->
+                  case root_source(root, include_dev, name) {
+                    Ok(selected) -> #(root, selected)
+                    Error(_) -> #(owner, dep)
+                  }
+                _ -> #(owner, dep)
+              }
               use candidates <- result.try(provider(
                 root,
-                owner,
-                dep,
+                source_owner,
+                selected,
                 pins,
                 update,
               ))
@@ -265,11 +279,18 @@ fn search(
                         <> "`.",
                       ))
                   })
+                  use Nil <- result.try(case dep {
+                    dependency.Hex(_, requirement, _) ->
+                      check_hex(package, requirement, root, include_dev)
+                      |> result.map_error(failure)
+                    _ -> Ok(Nil)
+                  })
                   use Nil <- result.try(
                     list.try_each(
                       dict.get(optional, package.name) |> result.unwrap([]),
                       fn(req) {
-                        check_hex(package, req) |> result.map_error(failure)
+                        check_hex(package, req, root, include_dev)
+                        |> result.map_error(failure)
                       },
                     ),
                   )
@@ -315,9 +336,37 @@ fn try_candidates(
   }
 }
 
-fn check_hex(package: Project, requirement: String) -> Result(Nil, String) {
-  case package.origin, semver.parse(package.version) {
-    dependency.HexOrigin(_), Ok(version) ->
+// Only the root may replace a registry source. A path is relative to the
+// root manifest, never to the transitive package that requested Hex.
+//
+// ```toml
+// shared = { path = "../shared" } # also satisfies child -> shared >= 1.0.0
+// ```
+fn root_source(root: Project, include_dev: Bool, name: String) {
+  let deps = case include_dev {
+    True -> list.append(root.dependencies, root.dev_dependencies)
+    False -> root.dependencies
+  }
+  list.find(deps, fn(dep) {
+    case dep {
+      dependency.Hex(_, _, _) -> False
+      _ -> dep.name == name
+    }
+  })
+}
+
+fn check_hex(
+  package: Project,
+  requirement: String,
+  root: Project,
+  include_dev: Bool,
+) -> Result(Nil, String) {
+  let allowed = case package.origin {
+    dependency.HexOrigin(_) -> True
+    _ -> result.is_ok(root_source(root, include_dev, package.name))
+  }
+  case allowed, semver.parse(package.version) {
+    True, Ok(version) ->
       case semver.satisfies(version, requirement) {
         True -> Ok(Nil)
         False ->

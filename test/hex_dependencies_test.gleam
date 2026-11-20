@@ -25,6 +25,7 @@ import project/hex
 import project/lockfile
 import project/package
 import project/project.{type Project, Project}
+import project/project_error
 import project/semver
 import simplifile
 import support
@@ -837,4 +838,195 @@ pub fn cached_hex_pooka_locations_keep_the_package_source_name_test() {
   assert failure.status == 1
   assert string.contains(failure.stderr, "tool: src/tool.pooka:3")
   assert !string.contains(failure.stderr, "$package")
+}
+
+// The root's source wins whether the child or shared library is visited first.
+// No registry request should be made for a package explicitly supplied locally.
+fn source_fixture(directory: String, source: String, dev: Bool) -> Project {
+  support.write(
+    directory <> "/shared/pooka.toml",
+    "name = \"shared\"\nversion = \"1.2.0\"\n",
+  )
+  support.write(
+    directory <> "/child/pooka.toml",
+    "name = \"child\"\nversion = \"1.0.0\"\n[dependencies]\nshared = \">= 1.0.0 and < 2.0.0\"\n",
+  )
+  support.write(
+    directory <> "/app/pooka.toml",
+    "name = \"app\"\nversion = \"1.0.0\"\n[dependencies]\nchild = { path = \"../child\" }\n"
+      <> case dev {
+      True -> "[dev-dependencies]\n"
+      False -> ""
+    }
+      <> "shared = "
+      <> source
+      <> "\n",
+  )
+  let assert Ok(root) = project.load(directory <> "/app")
+  root
+}
+
+fn no_registry(_url: String) -> Result(BitArray, String) {
+  panic as "the root source should replace registry lookup"
+}
+
+pub fn root_path_satisfies_hex_requirements_in_both_orders_test() {
+  use directory <- support.with_directory("root_path_hex")
+  let root = source_fixture(directory, "{ path = \"../shared\" }", False)
+  list.each([root.dependencies, list.reverse(root.dependencies)], fn(deps) {
+    let assert Ok(graph) =
+      package.resolve_using(
+        Project(..root, dependencies: deps),
+        False,
+        False,
+        no_registry,
+      )
+    assert list.map(graph.packages, fn(p) { p.name })
+      == ["shared", "child", "app"]
+    let assert Ok(shared) =
+      list.find(graph.packages, fn(p) { p.name == "shared" })
+    assert shared.origin == d.LocalOrigin
+    assert shared.version == "1.2.0"
+    let assert Ok(Nil) = lockfile.write(root, graph.packages)
+    assert result.is_ok(package.resolve_using(root, False, False, no_registry))
+  })
+}
+
+pub fn root_path_still_checks_transitive_hex_versions_test() {
+  use directory <- support.with_directory("root_path_hex_version")
+  let root = source_fixture(directory, "{ path = \"../shared\" }", False)
+  support.write(
+    directory <> "/shared/pooka.toml",
+    "name = \"shared\"\nversion = \"2.0.0\"\n",
+  )
+  let assert Error(error) =
+    package.resolve_using(root, False, False, no_registry)
+  let assert project_error.DependencyProblem(_, detail) = error
+  assert string.contains(detail, "2.0.0 does not satisfy >= 1.0.0 and < 2.0.0")
+}
+
+pub fn root_dev_sources_apply_only_when_dev_dependencies_are_enabled_test() {
+  use directory <- support.with_directory("root_dev_source")
+  let root = source_fixture(directory, "{ path = \"../shared\" }", True)
+  assert result.is_ok(package.resolve_using(root, True, False, no_registry))
+  let assert Error(_) =
+    package.resolve_using(root, False, False, fn(_) {
+      Error("registry unavailable")
+    })
+}
+
+pub fn transitive_path_sources_cannot_replace_hex_requirements_test() {
+  use directory <- support.with_directory("transitive_source_conflict")
+  let root = source_fixture(directory, "{ path = \"../shared\" }", False)
+  support.write(
+    directory <> "/bridge/pooka.toml",
+    "name = \"bridge\"\nversion = \"1.0.0\"\n[dependencies]\nshared = { path = \"../shared\" }\n",
+  )
+  let root =
+    Project(..root, dependencies: [
+      d.Local("bridge", "../bridge"),
+      d.Local("child", "../child"),
+    ])
+  let assert Error(project_error.DependencyProblem(_, detail)) =
+    package.resolve_using(root, False, False, no_registry)
+  assert string.contains(detail, "Conflicting sources for Hex package `shared`")
+}
+
+@external(erlang, "shipment_test_ffi", "git")
+fn source_git(directory: String, args: List(String)) -> #(Int, String)
+
+pub fn root_git_source_keeps_revision_pins_with_transitive_hex_requests_test() {
+  use directory <- support.with_directory("root_git_hex")
+  let root =
+    source_fixture(
+      directory,
+      "{ git = \"../shared\", branch = \"main\" }",
+      False,
+    )
+  let repository = directory <> "/shared"
+  list.each(
+    [
+      ["init", "-q", "-b", "main"],
+      ["add", "."],
+      [
+        "-c",
+        "user.name=Pooka Test",
+        "-c",
+        "user.email=tests@example.invalid",
+        "commit",
+        "-qm",
+        "fixture",
+      ],
+    ],
+    fn(args) {
+      let assert #(0, _) = source_git(repository, args)
+    },
+  )
+  let assert Ok(graph) = package.resolve_using(root, False, False, no_registry)
+  let assert Ok(shared) =
+    list.find(graph.packages, fn(p) { p.name == "shared" })
+  let assert d.GitOrigin(_, "branch:main", revision) = shared.origin
+  assert string.length(revision) == 40
+  let assert Ok(Nil) = lockfile.write(root, graph.packages)
+  let assert Ok(again) = package.resolve_using(root, False, False, no_registry)
+  assert list.find(again.packages, fn(p) { p.name == "shared" }) == Ok(shared)
+}
+
+pub fn published_hex_packages_accept_the_roots_local_source_test() {
+  use directory <- support.with_directory("hex_child_root_source")
+  let loaded = source_fixture(directory, "{ path = \"../shared\" }", False)
+  let root =
+    Project(..loaded, dependencies: [
+      requirement("child", "1.0.0"),
+      d.Local("shared", "../shared"),
+    ])
+  let #(bytes, checksum) =
+    archive(directory, [
+      #(
+        "pooka.toml",
+        bit_array.from_string(
+          "name = \"child\"\nversion = \"1.0.0\"\n[dependencies]\nshared = \">= 1.0.0 and < 2.0.0\"\n",
+        ),
+      ),
+    ])
+  let release =
+    metadata("child", "child", "pooka", checksum)
+    |> string.replace(
+      "\"requirements\":{}",
+      "\"requirements\":{\"shared\":{\"app\":\"shared\",\"requirement\":\">= 1.0.0 and < 2.0.0\",\"optional\":false}}",
+    )
+  let fetch = fn(url) {
+    assert !string.contains(url, "shared")
+    case string.ends_with(url, ".tar"), string.contains(url, "/releases/") {
+      True, _ -> Ok(bytes)
+      _, True -> Ok(bit_array.from_string(release))
+      _, _ ->
+        Ok(bit_array.from_string("{\"releases\":[{\"version\":\"1.0.0\"}]}"))
+    }
+  }
+  let assert Ok(graph) = package.resolve_using(root, False, False, fetch)
+  let assert Ok(child) = list.find(graph.packages, fn(p) { p.name == "child" })
+  let assert d.HexOrigin(_) = child.origin
+  let assert Ok(shared) =
+    list.find(graph.packages, fn(p) { p.name == "shared" })
+  assert shared.origin == d.LocalOrigin
+}
+
+pub fn optional_hex_constraints_are_checked_against_root_sources_test() {
+  use directory <- support.with_directory("optional_root_source")
+  let root = source_fixture(directory, "{ path = \"../shared\" }", False)
+  support.write(
+    directory <> "/child/pooka.toml",
+    "name = \"child\"\nversion = \"1.0.0\"\n[dependencies]\nshared = { version = \">= 2.0.0\", optional = true }\n",
+  )
+  list.each([root.dependencies, list.reverse(root.dependencies)], fn(deps) {
+    let assert Error(project_error.DependencyProblem(_, detail)) =
+      package.resolve_using(
+        Project(..root, dependencies: deps),
+        False,
+        False,
+        no_registry,
+      )
+    assert string.contains(detail, "1.2.0 does not satisfy >= 2.0.0")
+  })
 }
