@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Let root Git and local dependencies satisfy transitive Hex requirements for the same package, checking every version constraint and retaining the selected source in the lockfile (#58).
+
 - Lower safe match guards as native Erlang clause guards while retaining ordered evaluation for calls, division, string concatenation, and floating-point arithmetic (#55).
 
 - Emit direct calls for unshadowed local functions so Erlang can reuse binary match contexts in recursive scans (#54).
