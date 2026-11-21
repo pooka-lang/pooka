@@ -500,7 +500,7 @@ pub fn in_hierarchy(state: State, class: nominal.Class) -> Bool {
 /// ```text
 /// a -> b -> Int carries the origins that introduced those links
 /// ```
-fn dereference(value: Type, state: State) -> #(Type, List(Origin)) {
+pub fn dereference(value: Type, state: State) -> #(Type, List(Origin)) {
   case value {
     monotype.Variable(id) ->
       case dict.get(state.bindings, id) {
