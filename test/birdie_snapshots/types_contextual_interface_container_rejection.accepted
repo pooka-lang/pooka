@@ -1,0 +1,17 @@
+---
+version: 2.0.2
+title: types contextual interface container rejection
+---
+error: type mismatch
+  ╭─ src/main.pooka:5:45
+  │
+5 │ main() { let values: List(Named) = [User(), 42]
+  │                                    ──────┬─────┬
+  │                                          │     ╰─ found Int
+  │                                          ╰─ expected main.Named
+  ╰─
+
+This element must match the expected container type.
+
+Found 1 error.
+
