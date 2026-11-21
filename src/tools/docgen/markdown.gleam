@@ -33,14 +33,26 @@ pub fn render_scoped(
   resolve: fn(String) -> Option(String),
   prefix: String,
 ) -> String {
-  let options =
-    mork.configure()
-    |> mork.tables(True)
-    |> mork.tasklists(True)
-    |> mork.autolinks(True)
-    |> mork.heading_ids(True)
-    |> mork.footnotes(False)
+  render_page(text, resolve, prefix, fn(url) { url })
+}
 
+fn options() {
+  mork.configure()
+  |> mork.tables(True)
+  |> mork.tasklists(True)
+  |> mork.autolinks(True)
+  |> mork.heading_ids(True)
+  |> mork.footnotes(False)
+}
+
+/// Attach source-aware URL handling to Markdown links, after URL validation.
+pub fn render_page(
+  text: String,
+  resolve: fn(String) -> Option(String),
+  prefix: String,
+  rewrite: fn(String) -> String,
+) -> String {
+  let options = options()
   let original = mork.parse_with_options(options, text)
   let definitions =
     references(text, resolve, [])
@@ -56,7 +68,7 @@ pub fn render_scoped(
   }
   let doc = mork.parse_with_options(options, input)
   let headings = heading_index(doc.blocks, prefix) |> dict.from_list
-  let context = Context(doc, resolve, headings)
+  let context = Context(doc, resolve, headings, rewrite)
   d.Document(..doc, blocks: blocks(doc.blocks, context, prefix)) |> mork.to_html
 }
 
@@ -65,6 +77,7 @@ type Context {
     doc: d.Document,
     resolve: fn(String) -> Option(String),
     headings: Dict(String, String),
+    rewrite: fn(String) -> String,
   )
 }
 
@@ -85,6 +98,12 @@ fn references(
           }
       }
   }
+}
+
+/// Return the same scoped heading IDs that the rendered page exposes.
+pub fn anchors(text: String, prefix: String) -> Dict(String, String) {
+  let doc = mork.parse_with_options(options(), text)
+  heading_index(doc.blocks, prefix) |> dict.from_list
 }
 
 fn heading_index(
@@ -234,7 +253,8 @@ fn link_node(
             Ok(scoped) -> d.Anchor(scoped)
             Error(_) -> data.dest
           }
-        _ -> data.dest
+        d.Relative(url) -> d.Relative(ctx.rewrite(url))
+        d.Absolute(_) -> data.dest
       }
       d.FullLink(inlines(values, ctx), d.LinkData(..data, dest: dest))
     }

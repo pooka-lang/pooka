@@ -14,7 +14,9 @@ import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
+import gleam/uri
 import project/config
 import project/hexdocs
 import tools/docgen/assets
@@ -47,11 +49,24 @@ pub fn pages(
 ) -> List(#(String, String)) {
   let global = index(modules)
   let resolve = fn(key) { dict.get(global, key) |> option }
+  let destinations =
+    guides
+    |> list.filter_map(fn(guide) {
+      use source <- result.map(
+        normalize_source(string.split(guide.source, "/")),
+      )
+      #(source, #(guide.path, md.anchors(guide.documentation, "guide-")))
+    })
+    |> dict.from_list
   let overview =
     heading("Package documentation", name, version)
     <> byline(authors)
     <> "<div class=\"markdown-body\">"
-    <> md.render_scoped(readme, resolve, "overview-")
+    <> md.render_page(readme, resolve, "overview-", rewrite_guide_link(
+      destinations,
+      [],
+      _,
+    ))
     <> "</div>"
   [
     #(
@@ -101,10 +116,21 @@ pub fn pages(
     })
     |> list.append(
       list.map(guides, fn(guide) {
+        let directory =
+          guide.source
+          |> string.split("/")
+          |> list.reverse
+          |> list.drop(1)
+          |> list.reverse
         let body =
           heading("Guide", guide.title, "")
           <> "<div class=\"markdown-body\">"
-          <> md.render_scoped(guide.documentation, resolve, "guide-")
+          <> md.render_page(
+            guide.documentation,
+            resolve,
+            "guide-",
+            rewrite_guide_link(destinations, directory, _),
+          )
           <> "</div>"
         #(
           guide.path,
@@ -127,6 +153,50 @@ pub fn pages(
 
 // Credit the people named in `authors`, in their own order, on the overview
 // page. A package without authors renders no byline at all.
+/// Resolve links relative to the authored source. Generated guides all share
+/// the same output directory, so the new destination needs only its filename.
+fn rewrite_guide_link(
+  destinations: Dict(String, #(String, Dict(String, String))),
+  directory: List(String),
+  url: String,
+) -> String {
+  let rewritten = {
+    use parsed <- result.try(uri.parse(url))
+    use path <- result.try(uri.percent_decode(parsed.path))
+    use Nil <- result.try(case path == "" || string.starts_with(path, "/") {
+      True -> Error(Nil)
+      False -> Ok(Nil)
+    })
+    use source <- result.try(
+      normalize_source(list.append(directory, string.split(path, "/"))),
+    )
+    use #(output, anchors) <- result.map(dict.get(destinations, source))
+    let fragment = case parsed.fragment {
+      Some(id) -> {
+        let key = uri.percent_decode(id) |> result.unwrap(id)
+        Some(dict.get(anchors, key) |> result.unwrap(id))
+      }
+      None -> None
+    }
+    uri.to_string(uri.Uri(..parsed, path: output, fragment: fragment))
+  }
+  result.unwrap(rewritten, url)
+}
+
+fn normalize_source(parts: List(String)) -> Result(String, Nil) {
+  use reversed <- result.map(
+    list.try_fold(parts, [], fn(seen, part) {
+      case part, seen {
+        "", _ | ".", _ -> Ok(seen)
+        "..", [_, ..rest] -> Ok(rest)
+        "..", [] -> Error(Nil)
+        _, _ -> Ok([part, ..seen])
+      }
+    }),
+  )
+  string.join(list.reverse(reversed), "/")
+}
+
 fn byline(authors: List(String)) -> String {
   case authors {
     [] -> ""
