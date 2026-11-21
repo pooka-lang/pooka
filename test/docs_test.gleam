@@ -479,3 +479,49 @@ pub fn documentation_still_typechecks_dependency_uses_test() {
   let assert Error(failure) = docs.generate(directory)
   assert failure.diagnostics != []
 }
+
+pub fn registered_markdown_links_follow_generated_pages_and_headings_test() {
+  use directory <- support.with_directory("docs_registered_page_links")
+  project(directory)
+  support.write(
+    directory <> "/pooka.toml",
+    "name = \"docs_example\"\nversion = \"1.2.3\"\n[[documentation.pages]]\ntitle = \"Start\"\npath = \"start.html\"\nsource = \"docs/guide/start.md\"\n[[documentation.pages]]\ntitle = \"Applications\"\npath = \"applications.html\"\nsource = \"./docs/Application Guide.md\"\n",
+  )
+  support.write(
+    directory <> "/README.md",
+    "[Read the start](docs/guide/start.md)\n\n[Visit a website](https://example.org/docs/guide/start.md)",
+  )
+  support.write(
+    directory <> "/docs/guide/start.md",
+    "[Applications][app]\n\n[Bookmark](../Application%20Guide.md?mode=plain#unregistered)\n\n[Unregistered](../other.md)\n\n[Root](/docs/guide/start.md)\n\n![Image](../Application%20Guide.md)\n\n[app]: ../Application%20Guide.md#running\n",
+  )
+  support.write(
+    directory <> "/docs/Application Guide.md",
+    "## Running\n\n[Back to start](guide/./start.md)\n\n[Local](#running)\n",
+  )
+  let assert Ok(report) = docs.generate(directory)
+  let assert Ok(index) = simplifile.read(report.directory <> "/index.html")
+  let assert Ok(start) = simplifile.read(report.directory <> "/start.html")
+  let assert Ok(applications) =
+    simplifile.read(report.directory <> "/applications.html")
+
+  assert string.contains(index, "href=\"start.html\">Read the start</a>")
+  assert string.contains(
+    index,
+    "href=\"https://example.org/docs/guide/start.md\"",
+  )
+  assert string.contains(
+    start,
+    "href=\"applications.html#guide-0-running\">Applications</a>",
+  )
+  assert string.contains(
+    start,
+    "href=\"applications.html?mode=plain#unregistered\"",
+  )
+  assert string.contains(start, "href=\"../other.md\"")
+  assert string.contains(start, "href=\"/docs/guide/start.md\"")
+  assert string.contains(start, "src=\"../Application%20Guide.md\"")
+  assert string.contains(applications, "id=\"guide-0-running\"")
+  assert string.contains(applications, "href=\"#guide-0-running\">Local</a>")
+  assert string.contains(applications, "href=\"start.html\">Back to start</a>")
+}

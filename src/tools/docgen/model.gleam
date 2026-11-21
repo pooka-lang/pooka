@@ -35,5 +35,5 @@ pub type Entry {
 }
 
 pub type Guide {
-  Guide(title: String, path: String, documentation: String)
+  Guide(title: String, path: String, source: String, documentation: String)
 }

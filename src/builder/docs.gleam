@@ -102,7 +102,7 @@ pub fn generate(directory: String) -> Result(Report, build.Failure) {
           )
         }),
       )
-      Ok(model.Guide(page.title, page.path, text))
+      Ok(model.Guide(page.title, page.path, page.source, text))
     }),
   )
   let pages =

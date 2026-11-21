@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Resolve Markdown links from the README and guides to their configured HTML pages, including heading fragments (#64).
+
 - Keep the earlier argument constraint in generic call errors, so conflicting keys and factories point to both arguments (#61). Thanks [Ridderby](https://github.com/Ridderby) for catching this!
 
 - Check immutable container literals against their expected interface types, allowing different implementing classes and actors in annotated lists, nested containers, arguments, and returns (#60).
