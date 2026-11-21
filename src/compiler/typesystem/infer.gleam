@@ -3857,7 +3857,9 @@ fn known_function_call(
   path: String,
   otherwise: fn() -> Result(Inferred, Unsupported),
 ) -> Result(Inferred, Unsupported) {
-  case unify.apply(callee.type_, report.state) {
+  // Resolve the callable itself, keeping its parameter variables attached to
+  // the argument origins that constrained them earlier in this call.
+  case unify.dereference(callee.type_, report.state).0 {
     monotype.FunctionType(parameters, result) ->
       case list.length(parameters) == list.length(arguments) {
         False -> otherwise()

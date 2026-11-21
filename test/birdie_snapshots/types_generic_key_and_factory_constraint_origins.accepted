@@ -1,0 +1,18 @@
+---
+version: 2.0.2
+title: types generic key and factory constraint origins
+---
+error: type mismatch
+  ╭─ src/main.pooka:8:14
+  │
+8 │   child(key, fn() { Worker() })
+  │   ──┬── ─┬─  ────────┬────────
+  │     │    │           ╰─ found main.Worker
+  │     │    ╰─ earlier constraint: Call arguments share this generic parameter.
+  │     ╰─ expected main.Device
+  ╰─
+
+Each argument must match the type of its parameter.
+
+Found 1 error.
+
