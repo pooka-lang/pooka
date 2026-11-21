@@ -6,6 +6,8 @@
 
 - Keep the earlier argument constraint in generic call errors, so conflicting keys and factories point to both arguments (#61). Thanks [Ridderby](https://github.com/Ridderby) for catching this!
 
+- Check immutable container literals against their expected interface types, allowing different implementing classes and actors in annotated lists, nested containers, arguments, and returns (#60).
+
 ## 0.3.3 - 2026-11-20
 
 ### Fixed

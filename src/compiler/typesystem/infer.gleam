@@ -245,6 +245,265 @@ fn expression_type(
   })
 }
 
+/// Let an explicit interface view reach literal children before they choose
+/// their first concrete element type. Ordinary inference still owns expressions
+/// with no such view; a shared interface is never guessed from matching methods.
+///
+/// ```pooka
+/// let lights: List(Glowing) = [Firefly(), Moon("full")]
+/// // Each element keeps its value and is checked against Glowing.
+/// ```
+fn expression_expected(
+  value: ast.Expression,
+  expected: Option(Type),
+  environment: Environment,
+  state: unify.State,
+  path: String,
+  context: Context,
+) -> Result(Inferred, Unsupported) {
+  case expected {
+    Some(expected) ->
+      case has_interface_view(unify.apply(expected, state)) {
+        True ->
+          expected_literal(
+            value,
+            unify.apply(expected, state),
+            environment,
+            state,
+            path,
+            context,
+          )
+          |> result.map(fn(report) {
+            Inferred(
+              ..report,
+              state: unify.remember_expression(
+                report.state,
+                path,
+                ast.expression_span(value),
+                report.type_,
+              ),
+            )
+          })
+        False -> expression_type(value, environment, state, path, context)
+      }
+    None -> expression_type(value, environment, state, path, context)
+  }
+}
+
+fn has_interface_view(type_: Type) -> Bool {
+  case type_ {
+    monotype.Nominal(_, _, monotype.InterfaceKind, _) -> True
+    monotype.ListType(a) | monotype.OptionType(a) -> has_interface_view(a)
+    monotype.ResultType(a, b) -> has_interface_view(a) || has_interface_view(b)
+    monotype.TupleType(items) -> list.any(items, has_interface_view)
+    monotype.FunctionType(_, result) -> has_interface_view(result)
+    _ -> False
+  }
+}
+
+fn expected_literal(
+  value: ast.Expression,
+  expected: Type,
+  environment: Environment,
+  state: unify.State,
+  path: String,
+  context: Context,
+) -> Result(Inferred, Unsupported) {
+  let span = ast.expression_span(value)
+  case value, expected {
+    ast.ListExpression(items, _), monotype.ListType(element) ->
+      expected_elements(
+        items,
+        list.repeat(element, list.length(items)),
+        expected,
+        span,
+        environment,
+        state,
+        path,
+        context,
+      )
+    ast.TupleExpression(items, _), monotype.TupleType(types) ->
+      case list.length(items) == list.length(types) {
+        True ->
+          expected_elements(
+            items,
+            types,
+            expected,
+            span,
+            environment,
+            state,
+            path,
+            context,
+          )
+        False -> expression_type(value, environment, state, path, context)
+      }
+    ast.ListSpread(items, tail, _), monotype.ListType(element) -> {
+      use heads <- result.try(expected_elements(
+        items,
+        list.repeat(element, list.length(items)),
+        expected,
+        span,
+        environment,
+        state,
+        path,
+        context,
+      ))
+      use found <- result.try(expression_expected(
+        tail,
+        Some(expected),
+        environment,
+        heads.state,
+        path,
+        context,
+      ))
+      let checked =
+        require(
+          found,
+          expected,
+          span,
+          ast.expression_span(tail),
+          path,
+          "A spread tail must be a list with compatible elements.",
+        )
+      Ok(Inferred(
+        expected,
+        checked.state,
+        list.append(heads.diagnostics, checked.diagnostics),
+      ))
+    }
+    ast.BlockExpression(block), _ ->
+      block_expected(block, environment, state, path, context, Some(expected))
+    ast.Match(subject, branches, span), _ ->
+      match_expected(
+        subject,
+        branches,
+        span,
+        environment,
+        state,
+        path,
+        context,
+        Some(expected),
+      )
+    ast.AnonymousFunction(parameters, annotation, body, span),
+      monotype.FunctionType(..)
+    ->
+      callable_expected(
+        parameters,
+        annotation,
+        body,
+        span,
+        environment,
+        state,
+        path,
+        Context(..context, actor_writes: False),
+        Some(expected),
+      )
+    ast.Call(callee, [argument], _), _ ->
+      case builtin_view(callee, expected, environment) {
+        Some(input) -> {
+          // Remember the actual builtin call shape for typed lowering without
+          // changing the lexical binding or specialising other calls to it.
+          let state =
+            unify.remember_expression(
+              state,
+              path,
+              ast.expression_span(callee),
+              monotype.FunctionType([input], expected),
+            )
+          use found <- result.try(expression_expected(
+            argument,
+            Some(input),
+            environment,
+            state,
+            path,
+            context,
+          ))
+          let checked =
+            require(
+              found,
+              input,
+              span,
+              ast.expression_span(argument),
+              path,
+              "The constructor value must match its expected container view.",
+            )
+          Ok(Inferred(expected, checked.state, checked.diagnostics))
+        }
+        None -> expression_type(value, environment, state, path, context)
+      }
+    _, _ -> expression_type(value, environment, state, path, context)
+  }
+}
+
+/// A class called Some is not the Option constructor. Only the original core
+/// binding, whose synthetic span is empty, may borrow this constructor context.
+fn builtin_view(
+  callee: ast.Expression,
+  expected: Type,
+  environment: Environment,
+) -> Option(Type) {
+  let name = case callee {
+    ast.TypeName(name, _) | ast.Variable(name, _) -> Some(name)
+    _ -> None
+  }
+  use name <- option.then(name)
+  case dict.get(environment, name) {
+    Ok(Binding(_, span)) ->
+      case span == location.Span(location.start(), location.start()) {
+        True ->
+          case name, expected {
+            "Some", monotype.OptionType(value) -> Some(value)
+            "Ok", monotype.ResultType(value, _) -> Some(value)
+            "Error", monotype.ResultType(_, error) -> Some(error)
+            "echo", _ -> Some(expected)
+            _, _ -> None
+          }
+        False -> None
+      }
+    _ -> None
+  }
+}
+
+fn expected_elements(
+  values: List(ast.Expression),
+  types: List(Type),
+  expected: Type,
+  span: Span,
+  environment: Environment,
+  state: unify.State,
+  path: String,
+  context: Context,
+) -> Result(Inferred, Unsupported) {
+  list.try_fold(
+    list.zip(values, types),
+    inferred(expected, state),
+    fn(report, pair) {
+      use found <- result.try(expression_expected(
+        pair.0,
+        Some(pair.1),
+        environment,
+        report.state,
+        path,
+        context,
+      ))
+      let checked =
+        require(
+          found,
+          pair.1,
+          span,
+          ast.expression_span(pair.0),
+          path,
+          "This element must match the expected container type.",
+        )
+      Ok(Inferred(
+        expected,
+        checked.state,
+        list.append(report.diagnostics, checked.diagnostics),
+      ))
+    },
+  )
+}
+
 /// Dispatch inference by expression shape and lexical context. Compound
 /// expressions carry both substitutions and diagnostics from their children.
 ///
@@ -749,140 +1008,17 @@ fn expression_inner(
       )
     ast.SuperExpression(span) | ast.Assignment(span:, ..) ->
       Error(Unsupported(span, "superclass and actor assignment inference"))
-    ast.Match(subject, branches, span) -> {
-      let subject_expression = subject
-      let subject_span = ast.expression_span(subject)
-      use subject <- result.try(expression_type(
+    ast.Match(subject, branches, span) ->
+      match_expected(
         subject,
+        branches,
+        span,
         environment,
         state,
         path,
         context,
-      ))
-      let #(result_type, state) = unify.fresh(subject.state)
-      let evidence = case branches {
-        [first, ..] -> ast.expression_span(first.body)
-        [] -> span
-      }
-      use #(report, bodies) <- result.try(
-        list.try_fold(
-          branches,
-          #(Inferred(result_type, state, subject.diagnostics), []),
-          fn(acc, branch) {
-            let #(report, bodies) = acc
-            let branch_state = report.state
-            use pattern <- result.try(bind_pattern(
-              branch.pattern,
-              subject.type_,
-              environment,
-              report.state,
-              path,
-            ))
-            let branch_environment =
-              narrow_subject(subject_expression, branch.pattern, pattern)
-            use guard <- result.try(case branch.guard {
-              None -> Ok(inferred(monotype.BoolType, pattern.state))
-              Some(guard) ->
-                expression_type(
-                  guard,
-                  branch_environment,
-                  pattern.state,
-                  path,
-                  Context(..context, region: Guard),
-                )
-                |> result.map(require(
-                  _,
-                  monotype.BoolType,
-                  branch.span,
-                  ast.expression_span(guard),
-                  path,
-                  "A match guard must evaluate to Bool.",
-                ))
-            })
-            use body <- result.try(expression_type(
-              branch.body,
-              branch_environment,
-              guard.state,
-              path,
-              context,
-            ))
-            let body =
-              reject_pattern_escape(
-                pattern,
-                environment,
-                subject.type_,
-                branch_state,
-                body,
-                context,
-                path,
-                branch,
-              )
-            Ok(
-              #(
-                Inferred(
-                  result_type,
-                  body.state,
-                  list.flatten([
-                    report.diagnostics,
-                    pattern.diagnostics,
-                    guard.diagnostics,
-                    body.diagnostics,
-                  ]),
-                ),
-                [#(body.type_, ast.expression_span(branch.body)), ..bodies],
-              ),
-            )
-          },
-        ),
+        None,
       )
-
-      let bodies = list.reverse(bodies)
-      let report =
-        Inferred(
-          ..report,
-          state: join_into(
-            result_type,
-            list.map(bodies, fn(body) { body.0 }),
-            evidence,
-            path,
-            report.state,
-          ),
-        )
-      let report =
-        list.fold(bodies, report, fn(report, body) {
-          let checked =
-            require(
-              Inferred(body.0, report.state, []),
-              result_type,
-              evidence,
-              body.1,
-              path,
-              "All match branches must produce compatible types.",
-            )
-          Inferred(
-            result_type,
-            checked.state,
-            list.append(report.diagnostics, checked.diagnostics),
-          )
-        })
-      let coverage = case diagnostic.has_errors(report.diagnostics) {
-        True -> []
-        False ->
-          exhaustiveness.check_in(
-            unify.apply(subject.type_, report.state),
-            branches,
-            path,
-            subject_span,
-            report.state,
-          )
-      }
-      Ok(
-        Inferred(
-          ..report,
-          diagnostics: list.append(report.diagnostics, coverage),
-        ),
-      )
-    }
     ast.Panic(message:, span:) | ast.Todo(message:, span:) -> {
       use checked <- result.try(check_message(
         message,
@@ -1158,7 +1294,14 @@ fn infer_arguments(
                   Ok(#(type_, diagnostics)) ->
                     Ok(Inferred(type_, state, diagnostics))
                   Error(_) ->
-                    expression_type(value, environment, state, path, context)
+                    expression_expected(
+                      value,
+                      Some(expected),
+                      environment,
+                      state,
+                      path,
+                      context,
+                    )
                 }
             })
             let state = case
@@ -1340,16 +1483,35 @@ fn block_type(
   path: String,
   context: Context,
 ) -> Result(Inferred, Unsupported) {
+  block_expected(block, environment, state, path, context, None)
+}
+
+fn block_expected(
+  block: ast.Block,
+  environment: Environment,
+  state: unify.State,
+  path: String,
+  context: Context,
+  expected: Option(Type),
+) -> Result(Inferred, Unsupported) {
+  let last_index = list.length(block.statements) - 1
   use #(report, _) <- result.try(
     list.try_fold(
-      block.statements,
+      list.index_map(block.statements, fn(statement, index) {
+        #(statement, index == last_index)
+      }),
       #(inferred(monotype.NilType, state), environment),
       fn(acc, statement) {
         let #(previous, environment) = acc
+        let #(statement, last) = statement
         case statement {
           ast.ExpressionStatement(value) -> {
-            use found <- result.try(expression_type(
+            use found <- result.try(expression_expected(
               value,
+              case last {
+                True -> expected
+                False -> None
+              },
               environment,
               previous.state,
               path,
@@ -2373,8 +2535,15 @@ fn binding_statement(
   context: Context,
 ) -> Result(#(Inferred, Environment), Unsupported) {
   let generics = context.generics
-  use found <- result.try(expression_type(
+  use expected <- result.try(case annotation {
+    None -> Ok(None)
+    Some(annotation) ->
+      annotation_type(annotation, generics, previous.state, path)
+      |> result.map(Some)
+  })
+  use found <- result.try(expression_expected(
     value,
+    expected,
     environment,
     previous.state,
     path,
@@ -2645,12 +2814,24 @@ fn callable_expected(
     None -> state
   }
   use #(return_type, state) <- result.try(case annotation {
-    None -> Ok(unify.fresh(state))
+    None ->
+      case expected {
+        Some(type_) ->
+          case unify.apply(type_, state) {
+            monotype.FunctionType(_, result) ->
+              case has_interface_view(result) {
+                True -> Ok(#(result, state))
+                False -> Ok(unify.fresh(state))
+              }
+            _ -> Ok(unify.fresh(state))
+          }
+        None -> Ok(unify.fresh(state))
+      }
     Some(value) ->
       annotation_type(value, generics, state, path)
       |> result.map(fn(value) { #(value, state) })
   })
-  use report <- result.try(block_type(
+  use report <- result.try(block_expected(
     body,
     locals,
     state,
@@ -2663,6 +2844,7 @@ fn callable_expected(
       None,
       outer.actor_writes,
     ),
+    Some(return_type),
   ))
   let expected_span = case annotation {
     Some(value) -> ast.type_span(value)
@@ -3642,8 +3824,15 @@ pub fn infer_field_default(
     None -> Ok(inferred(monotype.NilType, state))
     Some(value) -> {
       let #(core, state) = core_environment(state)
-      expression_type(
+      use expected <- result.try(case field.annotation {
+        Some(annotation) ->
+          annotation_type(annotation, class_generics(class), state, path)
+          |> result.map(Some)
+        None -> Ok(None)
+      })
+      expression_expected(
         value,
+        expected,
         dict.merge(core, environment),
         state,
         path,
@@ -4595,4 +4784,149 @@ fn non_expansive(value: ast.Expression) -> Bool {
       && list.all(arguments, non_expansive)
     _ -> False
   }
+}
+
+/// Ordinary matches infer a common result; a contextual interface match checks
+/// each branch against the written view, with the same narrowing and coverage.
+fn match_expected(
+  subject: ast.Expression,
+  branches: List(ast.Branch),
+  span: Span,
+  environment: Environment,
+  state: unify.State,
+  path: String,
+  context: Context,
+  expected: Option(Type),
+) -> Result(Inferred, Unsupported) {
+  let subject_expression = subject
+  let subject_span = ast.expression_span(subject)
+  use subject <- result.try(expression_type(
+    subject,
+    environment,
+    state,
+    path,
+    context,
+  ))
+  let #(result_type, state) = case expected {
+    Some(type_) -> #(type_, subject.state)
+    None -> unify.fresh(subject.state)
+  }
+  let evidence = case branches {
+    [first, ..] -> ast.expression_span(first.body)
+    [] -> span
+  }
+  use #(report, bodies) <- result.try(
+    list.try_fold(
+      branches,
+      #(Inferred(result_type, state, subject.diagnostics), []),
+      fn(acc, branch) {
+        let #(report, bodies) = acc
+        let branch_state = report.state
+        use pattern <- result.try(bind_pattern(
+          branch.pattern,
+          subject.type_,
+          environment,
+          report.state,
+          path,
+        ))
+        let branch_environment =
+          narrow_subject(subject_expression, branch.pattern, pattern)
+        use guard <- result.try(case branch.guard {
+          None -> Ok(inferred(monotype.BoolType, pattern.state))
+          Some(guard) ->
+            expression_type(
+              guard,
+              branch_environment,
+              pattern.state,
+              path,
+              Context(..context, region: Guard),
+            )
+            |> result.map(require(
+              _,
+              monotype.BoolType,
+              branch.span,
+              ast.expression_span(guard),
+              path,
+              "A match guard must evaluate to Bool.",
+            ))
+        })
+        use body <- result.try(expression_expected(
+          branch.body,
+          expected,
+          branch_environment,
+          guard.state,
+          path,
+          context,
+        ))
+        let body =
+          reject_pattern_escape(
+            pattern,
+            environment,
+            subject.type_,
+            branch_state,
+            body,
+            context,
+            path,
+            branch,
+          )
+        Ok(
+          #(
+            Inferred(
+              result_type,
+              body.state,
+              list.flatten([
+                report.diagnostics,
+                pattern.diagnostics,
+                guard.diagnostics,
+                body.diagnostics,
+              ]),
+            ),
+            [#(body.type_, ast.expression_span(branch.body)), ..bodies],
+          ),
+        )
+      },
+    ),
+  )
+
+  let bodies = list.reverse(bodies)
+  let report =
+    Inferred(
+      ..report,
+      state: join_into(
+        result_type,
+        list.map(bodies, fn(body) { body.0 }),
+        evidence,
+        path,
+        report.state,
+      ),
+    )
+  let report =
+    list.fold(bodies, report, fn(report, body) {
+      let checked =
+        require(
+          Inferred(body.0, report.state, []),
+          result_type,
+          evidence,
+          body.1,
+          path,
+          "All match branches must produce compatible types.",
+        )
+      Inferred(
+        result_type,
+        checked.state,
+        list.append(report.diagnostics, checked.diagnostics),
+      )
+    })
+  let coverage = case diagnostic.has_errors(report.diagnostics) {
+    True -> []
+    False ->
+      exhaustiveness.check_in(
+        unify.apply(subject.type_, report.state),
+        branches,
+        path,
+        subject_span,
+        report.state,
+      )
+  }
+  Ok(Inferred(..report, diagnostics: list.append(report.diagnostics, coverage)))
 }
