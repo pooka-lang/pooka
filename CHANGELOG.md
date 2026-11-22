@@ -14,6 +14,8 @@
 
 ### Performance
 
+- Restore compatible compiled Hex dependencies from the user cache after cleaning a workspace.
+
 - Allow up to eight parallel Erlang source jobs in the isolated native compiler.
 
 - Store only module-local type state in the analysis cache and reattach current imports on a cache hit.

@@ -6,6 +6,7 @@
 //// packages are then exercised without a network dependency.
 
 import builder/build
+import builder/clean
 import builder/escript
 import builder/shipment
 import cli/cli as raw_cli
@@ -419,6 +420,42 @@ pub fn cached_native_dependency_headers_preserve_unchanged_build_reuse_test() {
   assert changed.compiled_foreign == []
   assert support.cli_main(["run"], command.plain(directory <> "/app")).stdout
     == "42\n"
+}
+
+pub fn native_hex_artifacts_survive_clean_but_invalidate_on_compiler_options_test() {
+  use directory <- support.with_directory("hex_retained_native")
+  let selected =
+    prepare(directory, "fixture", "fixture", "rebar3", [
+      #(
+        "src/fixture.erl",
+        "-module(fixture).\n-export([answer/0]).\nanswer() -> 42.\n",
+      ),
+      #(
+        "src/fixture.app.src",
+        "{application,fixture,[{vsn,\"1.0.0\"},{modules,[]},{applications,[kernel,stdlib]}]}.\n",
+      ),
+    ])
+  let app = directory <> "/app"
+  let assert Ok(first) = build.build(app)
+  assert list.contains(first.compiled_packages, "fixture")
+  let assert Ok(archive) =
+    simplifile.read_bits(selected.root <> "/.pooka-hex.tar")
+  let assert Ok(config) = project.load(app)
+  let restore_sources = fn() {
+    let assert Ok(Nil) = clean.clean_project(app)
+    let assert Ok(_) = hex.materialize(config, selected, fn(_) { Ok(archive) })
+    Nil
+  }
+  restore_sources()
+  let assert Ok(reused) = build.build(app)
+  assert !reused.reused
+  assert !list.contains(reused.compiled_packages, "fixture")
+  assert support.cli_main(["run"], command.plain(app)).stdout == "42\n"
+  restore_sources()
+  with_environment("ERL_COMPILER_OPTIONS", "[debug_info]", fn() {
+    let assert Ok(changed) = build.build(app)
+    assert list.contains(changed.compiled_packages, "fixture")
+  })
 }
 
 pub fn native_batches_keep_options_and_compile_modules_beyond_the_first_batch_test() {
