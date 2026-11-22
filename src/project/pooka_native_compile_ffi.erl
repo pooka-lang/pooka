@@ -12,9 +12,11 @@ main() ->
     %% This plan was just written by the parent compiler, not read from a
     %% package archive. It may contain package-specific macro-name atoms.
     {native_compile_v1,First,Remaining,Options} = binary_to_term(Bytes),
+    %% This child VM is dedicated to native compilation. Let it use more of
+    %% the available schedulers while keeping the parent's queue unchanged.
     case compile_first(First,Options) of
         {ok,_} -> finish(pooka_beam_ffi:compile_jobs([
-            fun() -> compile_one(File,Options) end || File <- Remaining]));
+            fun() -> compile_one(File,Options) end || File <- Remaining],8));
         {error,_}=Error -> finish(Error)
     end.
 
