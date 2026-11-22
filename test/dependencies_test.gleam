@@ -374,6 +374,51 @@ pub fn removed_dependencies_are_pruned_only_from_the_managed_build_graph_test() 
     == Ok("keep")
 }
 
+pub fn development_run_and_test_find_root_and_dependency_priv_resources_test() {
+  use directory <- support.with_directory("deps_development_priv")
+  let app = directory <> "/app"
+  let library = directory <> "/library"
+  package_at(
+    library,
+    "library",
+    "",
+    "external Resource from erlang \"dev_priv\" { read(app: String) -> String }\nread(app: String) { Resource.read(app) }",
+  )
+  support.write(
+    library <> "/ffi/dev_priv.erl",
+    "-module(dev_priv).\n-export([read/1]).\nread(App) -> {ok, Data} = file:read_file(filename:join(code:priv_dir(binary_to_existing_atom(App)), \"nested/answer.txt\")), Data.\n",
+  )
+  support.write(app <> "/priv/nested/answer.txt", "root resource")
+  support.write(library <> "/priv/nested/answer.txt", "dependency resource")
+  support.write(library <> "/priv/obsolete.txt", "remove me")
+  application(
+    app,
+    "[dependencies]\n" <> local("library", "../library"),
+    "import library\nmain() { echo #(library.read(\"app\"), library.read(\"library\")) }",
+  )
+  support.write(
+    app <> "/test/main.spec.pooka",
+    "module main_test\nimport library\ntest \"read resources\" { assert library.read(\"app\") == \"root resource\"\nassert library.read(\"library\") == \"dependency resource\" }",
+  )
+  let run = support.cli_main(["run"], command.plain(app))
+  assert run.status == 0
+  assert string.contains(run.stdout, "root resource")
+  assert string.contains(run.stdout, "dependency resource")
+  let tests = support.cli_main(["test"], command.plain(app))
+  assert tests.status == 0
+  assert string.contains(tests.stdout, "1 test, 1 passed")
+
+  let assert Ok(Nil) = simplifile.delete_file(library <> "/priv/obsolete.txt")
+  let assert Ok(Nil) = simplifile.delete(app <> "/priv")
+  let assert Ok(_) = build.build(app)
+  let output = app <> "/build/dev/erlang"
+  assert simplifile.exists(output <> "/app/priv", False) == Ok(False)
+  assert simplifile.exists(output <> "/library/priv/obsolete.txt", False)
+    == Ok(False)
+  assert simplifile.read(output <> "/library/priv/nested/answer.txt")
+    == Ok("dependency resource")
+}
+
 pub fn escripts_include_dependency_foreign_code_and_resources_after_relocation_test() {
   use directory <- support.with_directory("deps_export")
   let original = directory <> "/original"
