@@ -223,7 +223,21 @@ fn infer_source(
 
   case diagnostic.has_errors(report.diagnostics) || result.is_ok(cached) {
     False -> {
-      type_cache.save(progress.cache, source.identity, key, report)
+      // A cache hit rebases the saved local inference onto the current
+      // imports. Keep only the state that survives that operation on disk.
+      let local =
+        unify.rebase_module(
+          report.state,
+          unify.new(),
+          source.identity,
+          source.path,
+        )
+      type_cache.save(
+        progress.cache,
+        source.identity,
+        key,
+        module_infer.Module(..report, state: local),
+      )
     }
     True -> Nil
   }

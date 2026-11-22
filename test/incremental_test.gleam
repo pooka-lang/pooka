@@ -12,6 +12,7 @@
 //// ```
 
 import builder/build
+import builder/infer
 import builder/layout
 import builder/stamp
 import cli/command
@@ -97,6 +98,36 @@ pub fn changed_interfaces_are_checked_and_clean_builds_agree_test() {
   let assert Ok(Nil) = simplifile.delete(directory <> "/build")
   let assert Error(clean_error) = build.build(directory)
   assert incremental_error.diagnostics == clean_error.diagnostics
+}
+
+pub fn compact_analysis_reports_rebase_transitive_generic_imports_test() {
+  use directory <- support.with_directory("incremental_compact_analysis")
+  setup(directory)
+  support.write(
+    directory <> "/src/base.pooka",
+    "module base\nclass Box(a) { let value: a\nnew(item: a) { self.value = item } }\nlabel() { 1 }\n",
+  )
+  support.write(
+    directory <> "/src/helper.pooka",
+    "module helper\nimport base\nbox(value: a) -> base.Box(a) { base.Box(value) }\n",
+  )
+  support.write(
+    directory <> "/src/main.pooka",
+    "module main\nimport helper\nmain() { echo helper.box(42).value }\n",
+  )
+  let assert Ok(_) = build.build(directory)
+  support.write(
+    directory <> "/src/base.pooka",
+    "module base\nclass Box(a) { let value: a\nnew(item: a) { self.value = item } }\nlabel() { 2 }\n",
+  )
+  let assert Ok(preview) = infer.preview(directory)
+  assert preview.checked_modules == ["base"]
+  let assert Ok(updated) = build.build(directory)
+  let expected = binaries(updated)
+  assert support.execute(updated.directory, "pooka@app@main", []) == Ok("42\n")
+  let assert Ok(Nil) = simplifile.delete(directory <> "/build")
+  let assert Ok(clean) = build.build(directory)
+  assert binaries(clean) == expected
 }
 
 pub fn foreign_source_headers_and_valid_but_replaced_beams_are_tracked_test() {
