@@ -21,7 +21,8 @@ snapshot({graph,Root,Packages},Mode) ->
         Toolchain = toolchain(),
         InputSets = maps:map(fun(_,P) ->
             IsRoot = element(3,P) =:= element(3,Root),
-            Paths = inputs(P,IsRoot andalso Mode =:= <<"dev">>,Applications),
+            Paths = inputs(P,IsRoot andalso Mode =:= <<"dev">>,Applications,
+                           chars(element(2,Root)),Toolchain),
             Paths
         end,Projects),
         Own = maps:map(fun(Name,P) -> digest({P,Mode,Toolchain,project_environment(P),maps:get(Name,InputSets)}) end,Projects),
@@ -51,7 +52,7 @@ foreign_input(P,Path) ->
 
 %% Collect relevant package configuration and source inputs, including pooka.toml.
 %% Generated output is not a source substitute.
-inputs(P,Tests,Applications) ->
+inputs(P,Tests,Applications,Workspace,Toolchain) ->
     Root = chars(element(2,P)),
     %% Evaluate dynamic configuration before reading source trees: a script may
     %% generate sources or choose include paths. Its returned value is an input.
@@ -67,13 +68,109 @@ inputs(P,Tests,Applications) ->
     
     
     IncludeDirs = [filename:join(Root,"include"),filename:join(Root,"src")] ++ ExtraDirs,
-    %% A preprocessor has no state shared with another source file. Use the
-    %% bounded worker queue while retaining epp's macro and fallback behaviour.
-    {ok,IncludesByFile} = pooka_beam_ffi:compile_jobs([
-        fun() -> {ok,erlang_includes(Path,IncludeDirs,Defines,Applications)} end
-        || {File,_,_} <- Files, Path <- [chars(File)], filename:extension(Path) =:= ".erl"]),
-    Includes = lists:append(IncludesByFile),
+    Sources = [chars(Path) || {Path,_,_} <- Files, filename:extension(chars(Path)) =:= ".erl"],
+    Includes = cached_includes(Sources,IncludeDirs,Defines,Applications,Files,
+                               Root,Workspace,Toolchain),
     lists:usort(Files ++ Includes ++ [{unicode:characters_to_binary(filename:join(Root, "$resolved_rebar_config")), configuration, digest(ResolvedConfig)}]).
+
+cached_includes([],_,_,_,_,_,_,_) -> [];
+cached_includes(Sources,Dirs,Defines,Apps,Files,Root,Workspace,Toolchain) ->
+    Discover = fun() ->
+        {ok,ByFile} = pooka_beam_ffi:compile_jobs([
+            fun() -> {ok,erlang_includes(Source,Dirs,Defines,Apps)} end
+            || Source <- Sources]),
+        lists:usort(lists:append(ByFile))
+    end,
+    %% A Rebar script may change external state when evaluated. Always run
+    %% the original discovery path for dynamically configured packages.
+    case filelib:is_regular(filename:join(Root,"rebar.config.script")) of
+        true -> Discover();
+        false ->
+            Known = maps:from_list([{chars(Path),Entry} || {Path,_,_}=Entry <- Files]),
+            Name = binary_to_list(binary:encode_hex(digest(Root),lowercase)),
+            Cache = filename:join([Workspace,"build","header-dependencies",Name]),
+            Key = digest({header_plan_v1,Toolchain,Files,Dirs,Defines,Apps,code:get_path()}),
+            case reuse_header_plan(Cache,Key,Known) of
+                {ok,Entries} -> Entries;
+                miss ->
+                    create_header_plan(Cache,Key,Known,Sources,Dirs,Apps,Discover)
+            end
+    end.
+
+create_header_plan(Cache,Key,Known,Sources,Dirs,Apps,Discover) ->
+    %% Read the candidate inputs before and after epp so a concurrent edit
+    %% cannot turn an old discovery result into a reusable plan.
+    Plan = try
+        Probes = lists:foldl(fun(Source,Seen) ->
+            include_probes(Source,Dirs,Apps,Seen)
+        end,#{},Sources),
+        Paths = lists:sort(maps:keys(Probes)),
+        {Paths,header_stamp(Paths,#{})}
+    catch _:_ -> miss end,
+    Entries = Discover(),
+    _ = try
+        {Tracked,Expected} = Plan,
+        true = Expected =:= header_stamp(Tracked,#{}),
+        true = lists:all(fun({Path,_,_}=Entry) ->
+            lists:member(Entry,tree(chars(Path)))
+        end,Entries),
+        PathsWithAliases = lists:usort(Tracked ++ [chars(P) || {P,_,_} <- Entries]),
+        write_cache(Cache,Key,{PathsWithAliases,header_stamp(PathsWithAliases,Known),Entries})
+    catch _:_ -> miss end,
+    Entries.
+
+reuse_header_plan(Cache,Key,Known) ->
+    try
+        {ok,{Paths,Expected,Entries}} = read_cache(Cache,Key),
+        true = Expected =:= header_stamp(Paths,Known),
+        {ok,Entries}
+    catch _:_ -> miss end.
+
+header_stamp(Paths,Known) ->
+    digest(lists:map(fun(Path) ->
+        case maps:find(Path,Known) of
+            {ok,Entry} -> [Entry];
+            error -> tree(Path)
+        end
+    end,Paths)).
+
+%% Mirror epp's relative lookup, but walk all conditional branches and keep
+%% both the ordinary paths and the library candidates. The original epp
+%% result remains authoritative. Unrecognised directives disable reuse.
+%% https://www.erlang.org/doc/apps/stdlib/epp.html#open/3
+include_probes(Path,Dirs,Apps,Seen) ->
+    case maps:is_key(Path,Seen) of
+        true -> Seen;
+        false ->
+            Tracked = maps:put(Path,true,Seen),
+            case file:read_link_info(Path) of
+                {error,enoent} -> Tracked;
+                {error,enotdir} -> Tracked;
+                {ok,#file_info{type=regular}} ->
+                    {ok,Bytes} = file:read_file(Path),
+                    {ok,Tokens,_} = erl_scan:string(unicode:characters_to_list(Bytes)),
+                    lists:foldl(fun({Kind,File},Acc) ->
+                        true = filename:pathtype(File) =:= relative,
+                        false = lists:member($$,File),
+                        false = lists:member("..",filename:split(File)),
+                        Candidates = [filename:absname(File,Dir) || Dir <- [filename:dirname(Path)|Dirs]],
+                        lists:foldl(fun(Candidate,Inner) ->
+                            include_probes(Candidate,Dirs,Apps,Inner)
+                        end,Acc,Candidates ++ lib_probes(Kind,File,Apps))
+                    end,Tracked,include_directives(Tokens));
+                _ -> erlang:error(unsupported_header_path)
+            end
+    end.
+
+lib_probes(include,_,_) -> [];
+lib_probes(include_lib,File,Apps) ->
+    [App|Rest] = filename:split(File),
+    Graph = case maps:find(App,Apps) of {ok,Root} -> [Root]; error -> [] end,
+    Runtime = case code:lib_dir(list_to_atom(App)) of
+        {error,bad_name} -> [];
+        Directory -> [Directory]
+    end,
+    [filename:join([Directory|Rest]) || Directory <- Graph ++ Runtime].
 
 include_options(Root) ->
     case pooka_package_ffi:rebar_config(unicode:characters_to_binary(Root)) of

@@ -1030,3 +1030,40 @@ pub fn optional_hex_constraints_are_checked_against_root_sources_test() {
     assert string.contains(detail, "1.2.0 does not satisfy >= 2.0.0")
   })
 }
+
+pub fn cached_discovery_detects_new_and_removed_external_header_candidates_test() {
+  use directory <- support.with_directory("hex_header_plan")
+  let _selected =
+    prepare(directory, "fixture", "fixture", "rebar3", [
+      #(
+        "src/fixture.erl",
+        "-module(fixture).\n-ifdef(USE_EXTERNAL).\n-include(\"answer.hrl\").\n-else.\n-include(\"inactive.hrl\").\n-endif.\n-export([answer/0]).\nanswer() -> ?ANSWER.\n",
+      ),
+      #(
+        "rebar.config",
+        "{erl_opts,[{i,\"../shadow\"},{i,\"../external\"},{d,'USE_EXTERNAL'}]}.\n",
+      ),
+      #(
+        "src/fixture.app.src",
+        "{application,fixture,[{vsn,\"1.0.0\"},{modules,[]},{applications,[kernel,stdlib]}]}.\n",
+      ),
+    ])
+  let app = directory <> "/app"
+  let original = app <> "/build/packages/external/answer.hrl"
+  let shadow = app <> "/build/packages/shadow/answer.hrl"
+  support.write(original, "-define(ANSWER, 42).\n")
+  let env = command.plain(app)
+  assert support.cli_main(["run"], env).stdout == "42\n"
+  let assert Ok(plans) =
+    simplifile.read_directory(app <> "/build/header-dependencies")
+  assert !list.is_empty(plans)
+  let assert Ok(warm) = build.build(app)
+  assert warm.reused
+
+  support.write(shadow, "-define(ANSWER, 43).\n")
+  assert support.cli_main(["run"], env).stdout == "43\n"
+  let assert Ok(Nil) = simplifile.delete_file(shadow)
+  assert support.cli_main(["run"], env).stdout == "42\n"
+  let assert Ok(Nil) = simplifile.delete_file(original)
+  let assert Error(_) = build.build(app)
+}
