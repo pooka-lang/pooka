@@ -579,7 +579,11 @@ fn compile_project(
         ),
       )
       use Nil <- result.try(case local.project.kind {
-        dependency.Pooka -> Ok(Nil)
+        dependency.Pooka ->
+          case mode {
+            layout.Development -> stage_priv(local, paths.package)
+            layout.Production -> Ok(Nil)
+          }
         dependency.Beam(_, _) ->
           native.stage_assets(
             native_library,
@@ -790,6 +794,87 @@ fn cached_foreign(
   key: BitArray,
   run: fn() -> Result(List(#(String, BitArray)), Failure),
 ) -> Result(#(List(#(String, BitArray)), Bool), Failure)
+
+// Keep the package's resource directory beside ebin, where code:priv_dir/1
+// looks for it. Replace the previous copy so deleted resources stay deleted.
+fn stage_priv(local: check.Report, package: String) -> Result(Nil, Failure) {
+  let source = filepath.join(local.project.root, "priv")
+  let destination = filepath.join(package, "priv")
+  use Nil <- result.try(case simplifile.delete(destination) {
+    Ok(Nil) | Error(simplifile.Enoent) -> Ok(Nil)
+    Error(error) ->
+      Error(failure(local, destination, simplifile.describe_error(error)))
+  })
+  case simplifile.exists(source, False) {
+    Ok(False) -> Ok(Nil)
+    Ok(True) -> {
+      case simplifile.is_directory(source) {
+        Ok(True) -> copy_priv(local, source, destination)
+        Ok(False) -> Error(failure(local, source, "priv must be a directory"))
+        Error(error) ->
+          Error(failure(local, source, simplifile.describe_error(error)))
+      }
+    }
+    Error(error) ->
+      Error(failure(local, source, simplifile.describe_error(error)))
+  }
+}
+
+fn copy_priv(
+  local: check.Report,
+  source: String,
+  destination: String,
+) -> Result(Nil, Failure) {
+  // Shipment resources also reject symlinks. Avoid following links out of
+  // the package or back into an ancestor of the directory being copied.
+  use symlink <- result.try(
+    simplifile.is_symlink(source)
+    |> result.map_error(fn(error) {
+      failure(local, source, simplifile.describe_error(error))
+    }),
+  )
+  case symlink {
+    True ->
+      Error(failure(local, source, "priv resources cannot be symbolic links"))
+    False -> {
+      use info <- result.try(
+        simplifile.file_info(source)
+        |> result.map_error(fn(error) {
+          failure(local, source, simplifile.describe_error(error))
+        }),
+      )
+      case simplifile.file_info_type(info) {
+        simplifile.Directory -> {
+          use Nil <- result.try(
+            simplifile.create_directory_all(destination)
+            |> result.map_error(fn(error) {
+              failure(local, destination, simplifile.describe_error(error))
+            }),
+          )
+          use entries <- result.try(
+            simplifile.read_directory(source)
+            |> result.map_error(fn(error) {
+              failure(local, source, simplifile.describe_error(error))
+            }),
+          )
+          list.try_each(entries, fn(name) {
+            copy_priv(
+              local,
+              filepath.join(source, name),
+              filepath.join(destination, name),
+            )
+          })
+        }
+        simplifile.File ->
+          simplifile.copy_file(source, destination)
+          |> result.map_error(fn(error) {
+            failure(local, destination, simplifile.describe_error(error))
+          })
+        _ -> Error(failure(local, source, "expected a regular priv resource"))
+      }
+    }
+  }
+}
 
 fn failure(checked: check.Report, path: String, detail: String) -> Failure {
   Failure(Ok(checked), [

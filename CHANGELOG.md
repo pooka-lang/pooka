@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Stage each Pooka package’s `priv/` resources in the development build so `code:priv_dir/1` works in `pooka run` and `pooka test` (#66).
+
 - Resolve Markdown links from the README and guides to their configured HTML pages, including heading fragments (#64).
 
 - Keep the earlier argument constraint in generic call errors, so conflicting keys and factories point to both arguments (#61). Thanks [Ridderby](https://github.com/Ridderby) for catching this!
