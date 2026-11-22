@@ -14,6 +14,8 @@
 
 ### Performance
 
+- Allow up to eight parallel Erlang source jobs in the isolated native compiler.
+
 - Store only module-local type state in the analysis cache and reattach current imports on a cache hit.
 
 - Reuse unchanged package runtime BEAMs across builds when their toolchain fingerprint, module name, and checksum match.

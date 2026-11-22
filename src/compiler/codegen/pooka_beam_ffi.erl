@@ -11,7 +11,7 @@
 %%% ```
 
 -module(pooka_beam_ffi).
--export([compile/1, compile_jobs/1, pretty/1, runtime_binary/0, runtime_binary_for/1, execute/4, execute_inherited/4, start_test_vm/1, stop_test_vm/1, execute_tests/3, abstract_forms/1, build_fingerprint/0, resource/1, valid_module/2,
+-export([compile/1, compile_jobs/1, compile_jobs/2, pretty/1, runtime_binary/0, runtime_binary_for/1, execute/4, execute_inherited/4, start_test_vm/1, stop_test_vm/1, execute_tests/3, abstract_forms/1, build_fingerprint/0, resource/1, valid_module/2,
          compile_foreign_erlang/1, run_foreign_compiler/3, discover_elixir_code_paths/0]).
 %% Translate the small Gleam forms.Term algebra into ordinary Erlang atoms, numbers, tuples
 %% and lists before compilation.
@@ -46,11 +46,13 @@ compile(Forms) ->
 %% ```text
 %% A fails slowly, B fails quickly -> report A, after both workers finish
 %% ```
-compile_jobs([]) -> {ok,[]};
-compile_jobs([Job]) ->
+compile_jobs(Jobs) -> compile_jobs(Jobs,4).
+
+compile_jobs([],_) -> {ok,[]};
+compile_jobs([Job],_) ->
     case Job() of {ok,Value} -> {ok,[Value]}; {error,_}=Error -> Error end;
-compile_jobs(Jobs) ->
-    Limit = max(1,min(4,erlang:system_info(schedulers_online))),
+compile_jobs(Jobs,Maximum) ->
+    Limit = max(1,min(Maximum,erlang:system_info(schedulers_online))),
     Ref = make_ref(),
     Indexed = lists:zip(lists:seq(1,length(Jobs)),Jobs),
     {Waiting,Active} = start_compile_jobs(Indexed,Limit,Ref,#{}),
