@@ -65,7 +65,11 @@ pub fn compile_cached(
   key: BitArray,
   packages: List(Project),
 ) -> Result(#(#(List(#(String, BitArray)), String), Bool), String) {
-  cached(path, key, library, application(package), fn() {
+  let retain_after_clean = case package.origin {
+    d.HexOrigin(_) -> True
+    _ -> False
+  }
+  cached(path, key, library, application(package), retain_after_clean, fn() {
     compile_with(package, library, applications(package.dependencies, packages))
   })
 }
@@ -76,6 +80,7 @@ fn cached(
   key: BitArray,
   library: String,
   application: String,
+  retain_after_clean: Bool,
   run: fn() -> Result(#(List(#(String, BitArray)), String), String),
 ) -> Result(#(#(List(#(String, BitArray)), String), Bool), String)
 

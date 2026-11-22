@@ -10,7 +10,7 @@
 %%% ```
 
 -module(pooka_incremental_ffi).
--export([snapshot/2, read_report/3, write_report/4, foreign/3, native/5, digest/1, enclosing_archive/1, fingerprinted_environment/2]).
+-export([snapshot/2, read_report/3, write_report/4, foreign/3, native/6, digest/1, enclosing_archive/1, fingerprinted_environment/2]).
 -include_lib("kernel/include/file.hrl").
 
 %% Hash the package inputs used to decide whether its prior build can be reused.
@@ -380,10 +380,45 @@ build_foreign(Path,Key,Run) ->
         Error -> Error
     end.
 
-native(Path,Key,Library,Application,Run) ->
+native(Path,Key,Library,Application,Retain,Run) ->
     Destination = filename:join(chars(Library),chars(Application)),
+    Retained = retained_native_path(Path,Retain),
     case load_package(Path,Key) of
-        {ok,{native_inputs_v2,Modules,Resource,Files,Inputs,OriginalLibrary}} ->
+        {ok,Value} -> restore_native(Value,Path,Retained,Key,Destination,Run);
+        {error,nil} ->
+            case file:read_link_info(chars(Path)) of
+                {error,enoent} -> restore_retained(Path,Retained,Key,Destination,Run);
+                _ -> build_native(Path,Retained,Key,Destination,Run)
+            end
+    end.
+
+restore_retained(Path,Retained,Key,Destination,Run) ->
+    case load_package(Retained,Key) of
+        {ok,Value} ->
+            case restore_native(Value,Path,Retained,Key,Destination,Run) of
+                {ok,{_,false}} = Hit ->
+                    _ = copy_native_cache(Retained,Path),
+                    Hit;
+                Result -> Result
+            end;
+        {error,nil} -> build_native(Path,Retained,Key,Destination,Run)
+    end.
+
+%% An absolute workspace identity keeps source locations, parse transforms,
+%% and other path-sensitive native inputs scoped to the original checkout.
+%% Retain one record per workspace/application target, replacing old keys.
+retained_native_path(Path,true) ->
+    try
+        Cache = filename:basedir(user_cache,"pooka"),
+        Name = binary_to_list(binary:encode_hex(digest(Path),lowercase)),
+        unicode:characters_to_binary(filename:join([Cache,"native-v1",Name]))
+    catch _:_ -> <<>> end;
+retained_native_path(_,false) -> <<>>.
+
+restore_native(Value,Path,Retained,Key,Destination,Run) ->
+    Library = filename:dirname(Destination),
+    case Value of
+        {native_inputs_v2,Modules,Resource,Files,Inputs,OriginalLibrary} ->
             try
                 true = valid_modules(Modules),true = is_binary(Resource),
                 true = is_list(OriginalLibrary),
@@ -391,21 +426,35 @@ native(Path,Key,Library,Application,Run) ->
                 %% already been staged in graph order. Restore before checking
                 %% either set through the new library directory.
                 restore(Destination,Files),
-                true = Inputs =:= native_inputs(Modules,OriginalLibrary,chars(Library)),
+                true = Inputs =:= native_inputs(Modules,OriginalLibrary,Library),
                 {ok,{{Modules,Resource},false}}
-            catch _:_ -> build_native(Path,Key,Destination,Run) end;
-        _ -> build_native(Path,Key,Destination,Run)
+            catch _:_ -> build_native(Path,Retained,Key,Destination,Run) end;
+        _ -> build_native(Path,Retained,Key,Destination,Run)
     end.
-build_native(Path,Key,Destination,Run) ->
+build_native(Path,Retained,Key,Destination,Run) ->
     case Run() of
         {ok,{Modules,Resource}} ->
             Library = filename:dirname(Destination),
-            _ = try save_package(Path,Key,{native_inputs_v2,Modules,Resource,
-                archive(Destination,""),native_inputs(Modules,Library,Library),Library})
-                catch _:_ -> {error,nil} end,
+            _ = try
+                Value = {native_inputs_v2,Modules,Resource,archive(Destination,""),
+                         native_inputs(Modules,Library,Library),Library},
+                case save_package(Path,Key,Value) of
+                    {ok,nil} when Retained =/= <<>> ->
+                        %% Keep the identical archive without compressing it again.
+                        copy_native_cache(Path,Retained);
+                    Other -> Other
+                end
+            catch _:_ -> {error,nil} end,
             {ok,{{Modules,Resource},true}};
         Error -> Error
     end.
+
+copy_native_cache(Source,Destination) ->
+    try
+        {ok,Bytes} = file:read_file(chars(Source)),
+        ok = filelib:ensure_dir(chars(Destination)),
+        pooka_package_ffi:write_atomic(Destination,Bytes)
+    catch _:_ -> {error,nil} end.
 
 %% Check cached module artifacts before accepting a package reuse decision.
 valid_modules(Modules) when is_list(Modules) ->
@@ -492,6 +541,7 @@ restore(Root,Files) ->
                          ok = file:write_file(Path,Bytes),ok = file:change_mode(Path,Mode)
                   end,Files).
 
+load_package(<<>>,_) -> {error,nil};
 load_package(_,<<>>) -> {error,nil};
 load_package(Path,Key) -> read_cache(chars(Path),Key).
 save_package(_,<<>>,_) -> {error,nil};
