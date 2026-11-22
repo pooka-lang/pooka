@@ -24,6 +24,8 @@
 
 - Discover Erlang header inputs concurrently using a bounded worker queue.
 
+- Reuse guarded Erlang header-discovery plans across builds and recheck candidate paths for changes.
+
 ## 0.3.3 - 2026-11-20
 
 ### Fixed
