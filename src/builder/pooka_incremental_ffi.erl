@@ -67,8 +67,12 @@ inputs(P,Tests,Applications) ->
     
     
     IncludeDirs = [filename:join(Root,"include"),filename:join(Root,"src")] ++ ExtraDirs,
-    Includes = lists:append([erlang_includes(chars(Path),IncludeDirs,Defines,Applications) || {Path,_,_} <- Files,
-                            filename:extension(chars(Path)) =:= ".erl"]),
+    %% A preprocessor has no state shared with another source file. Use the
+    %% bounded worker queue while retaining epp's macro and fallback behaviour.
+    {ok,IncludesByFile} = pooka_beam_ffi:compile_jobs([
+        fun() -> {ok,erlang_includes(Path,IncludeDirs,Defines,Applications)} end
+        || {File,_,_} <- Files, Path <- [chars(File)], filename:extension(Path) =:= ".erl"]),
+    Includes = lists:append(IncludesByFile),
     lists:usort(Files ++ Includes ++ [{unicode:characters_to_binary(filename:join(Root, "$resolved_rebar_config")), configuration, digest(ResolvedConfig)}]).
 
 include_options(Root) ->

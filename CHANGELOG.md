@@ -18,6 +18,8 @@
 
 - Reuse unchanged package runtime BEAMs across builds when their toolchain fingerprint, module name, and checksum match.
 
+- Discover Erlang header inputs concurrently using a bounded worker queue.
+
 ## 0.3.3 - 2026-11-20
 
 ### Fixed
