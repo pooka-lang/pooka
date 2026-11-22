@@ -12,6 +12,10 @@
 
 - Check immutable container literals against their expected interface types, allowing different implementing classes and actors in annotated lists, nested containers, arguments, and returns (#60).
 
+### Performance
+
+- Reuse unchanged package runtime BEAMs across builds when their toolchain fingerprint, module name, and checksum match.
+
 ## 0.3.3 - 2026-11-20
 
 ### Fixed

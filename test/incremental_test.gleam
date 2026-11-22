@@ -169,6 +169,30 @@ pub fn cache_corruption_and_missing_outputs_fall_back_to_a_safe_build_test() {
   assert missing.compiled == ["pooka@app@main"]
 }
 
+pub fn corrupted_runtime_beams_are_repaired_without_recompiling_source_test() {
+  use directory <- support.with_directory("incremental_runtime_repair")
+  setup(directory)
+  let assert Ok(first) = build.build(directory)
+  let name = "pooka@app@@runtime"
+  let path = layout.beam(first.layout, name)
+  let hash_path = filepath.join(first.layout.artifacts, name <> ".beam.hash")
+  let assert Ok(original) = simplifile.read_bits(path)
+  let assert Ok(checksum) = simplifile.read_bits(hash_path)
+
+  support.write(path, "not a BEAM")
+  let assert Ok(repaired) = build.build(directory)
+  assert !repaired.reused
+  assert repaired.compiled == []
+  assert simplifile.read_bits(path) == Ok(original)
+
+  support.write(hash_path, "incorrect checksum")
+  let assert Ok(repaired) = build.build(directory)
+  assert !repaired.reused
+  assert repaired.compiled == []
+  assert simplifile.read_bits(hash_path) == Ok(checksum)
+  assert support.execute(repaired.directory, "pooka@app@main", []) == Ok("42\n")
+}
+
 // The last successful stamp belongs to the last successful artifacts. A
 // failed build cannot advance one side of that pair.
 pub fn failures_do_not_replace_a_successful_build_stamp_test() {

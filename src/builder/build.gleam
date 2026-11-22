@@ -449,41 +449,48 @@ fn compile_project(
   )
   use <- native.using_directory(native_library)
 
-  use Nil <- result.try(
-    list.try_each(owners, fn(owner) {
-      case owner.kind {
-        dependency.Beam(_, _) -> Ok(Nil)
-        dependency.Pooka -> {
-          let selected =
-            list.filter(artifacts, fn(a) {
-              string.starts_with(a.name, "pooka@" <> owner.name <> "@")
-            })
-          use binary <- result.try(
-            beam.runtime_binary_for(owner.name)
-            |> result.map_error(failure(checked, owner.root, _)),
-          )
-          let resource =
-            application.render_with_metadata(
-              owner.name,
-              owner.version,
-              [runtime.name(owner.name), ..list.map(selected, fn(a) { a.name })],
-              [],
-              owner.config,
-            )
-          native.stage_pooka(
-            owner,
-            native_library,
-            [
-              #(runtime.name(owner.name), binary),
-              ..list.map(selected, fn(a) { #(a.name, a.binary) })
-            ],
-            resource,
-          )
-          |> result.map_error(failure(checked, owner.root, _))
-        }
+  use runtimes <- result.try(
+    owners
+    |> list.filter(fn(owner) { owner.kind == dependency.Pooka })
+    |> list.try_map(fn(owner) {
+      let selected =
+        list.filter(artifacts, fn(a) {
+          string.starts_with(a.name, "pooka@" <> owner.name <> "@")
+        })
+      let owner_paths = layout.erlang(checked.project.root, owner.name, mode)
+      let name = runtime.name(owner.name)
+      let cached = case reuse {
+        True -> read_cached_beam(owner_paths, name)
+        False -> Error(Nil)
       }
+      use binary <- result.try(
+        case cached {
+          Ok(binary) -> Ok(binary)
+          Error(Nil) -> beam.runtime_binary_for(owner.name)
+        }
+        |> result.map_error(failure(checked, owner.root, _)),
+      )
+      let resource =
+        application.render_with_metadata(
+          owner.name,
+          owner.version,
+          [name, ..list.map(selected, fn(a) { a.name })],
+          [],
+          owner.config,
+        )
+      use Nil <- result.try(
+        native.stage_pooka(
+          owner,
+          native_library,
+          [#(name, binary), ..list.map(selected, fn(a) { #(a.name, a.binary) })],
+          resource,
+        )
+        |> result.map_error(failure(checked, owner.root, _)),
+      )
+      Ok(#(owner.name, binary))
     }),
   )
+  let runtimes = dict.from_list(runtimes)
   use packages <- result.try(
     list.try_map(owners, fn(owner) {
       let paths =
@@ -606,24 +613,22 @@ fn compile_project(
           ))
           write_bits(
             local,
-            filepath.join(paths.artifacts, artifact.name <> ".beam.hash"),
+            beam_hash_path(paths, artifact.name),
             stamp.digest(artifact.binary),
           )
         }),
       )
-      use Nil <- result.try(case local.project.kind {
-        dependency.Pooka -> {
-          use binary <- result.try(
-            beam.runtime_binary_for(local.project.name)
-            |> result.map_error(failure(local, paths.ebin, _)),
-          )
-          write_bits(
+      use Nil <- result.try(case dict.get(runtimes, local.project.name) {
+        Ok(binary) -> {
+          let name = runtime.name(local.project.name)
+          use Nil <- result.try(write_bits(
             local,
-            layout.beam(paths, runtime.name(local.project.name)),
+            layout.beam(paths, name),
             binary,
-          )
+          ))
+          write_bits(local, beam_hash_path(paths, name), stamp.digest(binary))
         }
-        _ -> Ok(Nil)
+        Error(Nil) -> Ok(Nil)
       })
       let root = local.project.name == checked.project.name
       // Remove the obsolete unqualified helper from earlier compiler output.
@@ -677,12 +682,12 @@ fn compile_project(
       )
       use Nil <- result.try(prune(local, paths.artifacts, [".erl"], []))
       use Nil <- result.try(prune(local, paths.ebin, [".erl"], []))
-      use Nil <- result.try(prune(
-        local,
-        paths.artifacts,
-        [".abstr", ".beam.hash"],
-        own_names,
-      ))
+      use Nil <- result.try(
+        prune(local, paths.artifacts, [".abstr", ".beam.hash"], [
+          runtime.name(local.project.name),
+          ..own_names
+        ]),
+      )
       write_text(
         local,
         paths.module_manifest,
@@ -905,26 +910,38 @@ fn compile_module(
     reuse
     && simplifile.read_bits(layout.abstract_forms(paths, name)) == Ok(abstract)
   {
-    True -> simplifile.read_bits(layout.beam(paths, name))
-    False -> Error(simplifile.Enoent)
+    True -> read_cached_beam(paths, name)
+    False -> Error(Nil)
   }
   case cached {
-    Ok(binary) ->
-      case
-        beam.valid_module(binary, name)
-        && simplifile.read_bits(filepath.join(
-          paths.artifacts,
-          name <> ".beam.hash",
-        ))
-        == Ok(stamp.digest(binary))
-      {
-        True -> Ok(#(binary, False))
-        False ->
-          beam.compile(forms) |> result.map(fn(binary) { #(binary, True) })
-      }
-    Error(_) ->
+    Ok(binary) -> Ok(#(binary, False))
+    Error(Nil) ->
       beam.compile(forms) |> result.map(fn(binary) { #(binary, True) })
   }
+}
+
+/// A reusable BEAM must have the expected module name and recorded checksum.
+/// Callers first check the compiler fingerprint to invalidate old toolchains.
+fn read_cached_beam(
+  paths: layout.Layout,
+  name: String,
+) -> Result(BitArray, Nil) {
+  use binary <- result.try(
+    simplifile.read_bits(layout.beam(paths, name))
+    |> result.map_error(fn(_) { Nil }),
+  )
+  case
+    beam.valid_module(binary, name)
+    && simplifile.read_bits(beam_hash_path(paths, name))
+    == Ok(stamp.digest(binary))
+  {
+    True -> Ok(binary)
+    False -> Error(Nil)
+  }
+}
+
+fn beam_hash_path(paths: layout.Layout, name: String) -> String {
+  filepath.join(paths.artifacts, name <> ".beam.hash")
 }
 
 fn write_bits(
