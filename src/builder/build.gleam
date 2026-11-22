@@ -579,7 +579,11 @@ fn compile_project(
         ),
       )
       use Nil <- result.try(case local.project.kind {
-        dependency.Pooka -> stage_priv(local, paths.package)
+        dependency.Pooka ->
+          case mode {
+            layout.Development -> stage_priv(local, paths.package)
+            layout.Production -> Ok(Nil)
+          }
         dependency.Beam(_, _) ->
           native.stage_assets(
             native_library,
