@@ -23,6 +23,8 @@ jobs:
       - run: sh -n install.sh
       - run: gleam build
       - run: python3 scripts/check-publish-prompt.py
+      - run: gleam export escript
+      - run: python3 scripts/check-lsp.py ./pooka
       - run: gleam test
       - run: gleam format --check src test
 

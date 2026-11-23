@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Add a preview of `pooka lsp` with offline live diagnostics and document formatting.
+
 ### Fixed
 
 - Stage each Pooka package’s `priv/` resources in the development build so `code:priv_dir/1` works in `pooka run` and `pooka test` (#66).
