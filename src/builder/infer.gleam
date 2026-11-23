@@ -101,26 +101,27 @@ fn preview_with_cache(
   })
   // Skip broken modules and their importers during inference. Continue
   // checking independent modules rather than inventing missing types.
-  let blocked =
-    list.flat_map(structural, fn(item) {
-      case item.severity {
-        diagnostic.ErrorSeverity ->
-          list.filter_map(item.labels, fn(label) {
-            case label.importance {
-              diagnostic.Primary -> Ok(label.location.path)
-              diagnostic.Secondary -> Error(Nil)
-            }
-          })
-        _ -> []
-      }
-    })
   let files = case editor {
     False -> checked.files
-    True ->
+    True -> {
+      let blocked =
+        list.flat_map(structural, fn(item) {
+          case item.severity {
+            diagnostic.ErrorSeverity ->
+              list.filter_map(item.labels, fn(label) {
+                case label.importance {
+                  diagnostic.Primary -> Ok(label.location.path)
+                  diagnostic.Secondary -> Error(Nil)
+                }
+              })
+            _ -> []
+          }
+        })
       list.filter(checked.files, fn(file) {
         !diagnostic.has_errors(file.diagnostics)
         && !list.contains(blocked, check.display_path(checked, file.path))
       })
+    }
   }
   let sources =
     list.filter_map(files, fn(file) {
@@ -175,14 +176,15 @@ fn infer_next(
   progress: Progress,
   editor: Bool,
 ) -> Result(Progress, PreviewError) {
-  let ready =
-    list.all(source.syntax.imports, fn(imported) {
-      dict.has_key(
+  let blocked =
+    editor
+    && list.any(source.syntax.imports, fn(imported) {
+      !dict.has_key(
         progress.available,
         string.join(imported.module.segments, "/"),
       )
     })
-  case editor && !ready {
+  case blocked {
     True -> Ok(progress)
     False -> {
       case infer_source(source, role, progress) {
