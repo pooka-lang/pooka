@@ -66,11 +66,11 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         for request in (90, 91):
             unknown = events.get(timeout=10)
             assert unknown["id"] == request and unknown["error"]["code"] == -32601
-        text = 'module main\nmain() { "🦌";\n  1;\n}\n'
+        text = 'module main\r\nmain() { "🦌e\u0301";\r\n  1;\r\n}\r\n'
         send("textDocument/didOpen", {"textDocument": {"uri": uri, "text": text, "version": 1}})
         result = events.get(timeout=15)["params"]
         assert result["version"] == 1
-        assert any(d["range"]["start"] == {"line": 1, "character": 13}
+        assert any(d["range"]["start"] == {"line": 1, "character": 15}
                    for d in result["diagnostics"]), result
         assert any(d["range"]["start"]["line"] == 2 and d["severity"] == 1
                    for d in result["diagnostics"]), result
