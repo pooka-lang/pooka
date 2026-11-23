@@ -10,11 +10,13 @@ serve() ->
     Server = self(),
     Reader = spawn_link(fun() -> read_messages(Server) end),
     Analyzer = spawn(fun() -> analyze_queue(Server) end),
-    try loop(starting,#{},0,undefined,{Analyzer,false})
+    Navigator = spawn(fun() -> definition_queue(Server) end),
+    try loop(starting,#{},0,undefined,{Analyzer,Navigator,false})
     after
         unlink(Reader),
         exit(Reader,kill),
-        exit(Analyzer,kill)
+        exit(Analyzer,kill),
+        exit(Navigator,kill)
     end.
 
 read_messages(Server) ->
@@ -48,11 +50,17 @@ loop(Stage,Docs,Revision,Timer,Analyzer) ->
             error_response(null,-32600,<<"Invalid request">>),
             loop(Stage,Docs,Revision,Timer,Analyzer);
         {analyze,Revision} when Stage =:= running ->
-            {Worker,_} = Analyzer,
+            {Worker,_,_} = Analyzer,
             Worker ! {analyze,Revision,Docs},
             loop(Stage,Docs,Revision,undefined,Analyzer);
         {checked,Revision,Results} when Stage =:= running ->
             lists:foreach(fun({Uri,Version,Diagnostics}) -> publish(Uri,Version,Diagnostics) end,Results),
+            loop(Stage,Docs,Revision,Timer,Analyzer);
+        {definition_result,Revision,Id,Result} when Stage =:= running ->
+            reply(Id,Result),
+            loop(Stage,Docs,Revision,Timer,Analyzer);
+        {definition_result,_,Id,_} when Stage =:= running ->
+            error_response(Id,-32801,<<"Document changed during definition lookup">>),
             loop(Stage,Docs,Revision,Timer,Analyzer);
         disconnected -> disconnected();
         _ -> loop(Stage,Docs,Revision,Timer,Analyzer)
@@ -69,6 +77,20 @@ analyze_queue(Server) ->
                 io:format(standard_error,"Pooka LSP analysis failed: ~p:~p~n",[Class,Reason])
             end,
             analyze_queue(Server)
+    end.
+
+%% Typed navigation can run inference for the whole project. Keep one worker
+%% separate from diagnostics so neither can block the protocol message loop.
+definition_queue(Server) ->
+    receive
+        {definition,Revision,Id,Uri,Position,Docs} ->
+            Result = try definition(Uri,Position,Docs)
+                catch Class:Reason ->
+                    io:format(standard_error,"Pooka definition lookup failed: ~p:~p~n",[Class,Reason]),
+                    null
+                end,
+            Server ! {definition_result,Revision,Id,Result},
+            definition_queue(Server)
     end.
 
 newest_analysis(Work) ->
@@ -97,15 +119,15 @@ headers(Length) ->
         _ -> error
     end.
 
-dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}=Request, starting, Docs, R, T, {Worker,_}) ->
+dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}=Request, starting, Docs, R, T, {Worker,Navigator,_}) ->
     reply(Id,#{capabilities => #{positionEncoding => <<"utf-16">>,
         documentFormattingProvider => true, documentSymbolProvider => true, definitionProvider => true,
         textDocumentSync => #{openClose => true,change => 1,save => true}},
         serverInfo => #{name => <<"Pooka">>}}),
-    loop(running,Docs,R,T,{Worker,supports_file_watch(Request)});
-dispatch(#{<<"method">> := <<"initialized">>}, running, Docs, R, T, {Worker,true}) ->
+    loop(running,Docs,R,T,{Worker,Navigator,supports_file_watch(Request)});
+dispatch(#{<<"method">> := <<"initialized">>}, running, Docs, R, T, {Worker,Navigator,true}) ->
     register_file_watch(),
-    loop(running,Docs,R,T,{Worker,false});
+    loop(running,Docs,R,T,{Worker,Navigator,false});
 dispatch(#{<<"method">> := <<"workspace/didChangeWatchedFiles">>,
            <<"params">> := #{<<"changes">> := Changes}}, running, Docs, R, T, Analyzer)
   when is_list(Changes), Changes =/= [] ->
@@ -153,7 +175,9 @@ dispatch(#{<<"method">> := <<"textDocument/documentSymbol">>, <<"id">> := Id,
 dispatch(#{<<"method">> := <<"textDocument/definition">>, <<"id">> := Id,
            <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri},
                             <<"position">> := Position}}, running, Docs, R, T, Analyzer) ->
-    reply(Id,definition(Uri,Position,Docs)), loop(running,Docs,R,T,Analyzer);
+    {_,Navigator,_} = Analyzer,
+    Navigator ! {definition,R,Id,Uri,Position,Docs},
+    loop(running,Docs,R,T,Analyzer);
 dispatch(#{<<"method">> := <<"textDocument/formatting">>, <<"id">> := Id,
            <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri}}}, running, Docs, R, T, Analyzer) ->
     Edits = case maps:find(Uri,Docs) of
