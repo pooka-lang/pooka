@@ -43,11 +43,13 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
     try:
         send("initialize", {}, 1)
         assert events.get(timeout=10)["result"]["capabilities"]["documentFormattingProvider"]
-        text = 'module main\nmain() { "🦌"; }\n'
+        text = 'module main\nmain() { "🦌";\n  1;\n}\n'
         send("textDocument/didOpen", {"textDocument": {"uri": uri, "text": text, "version": 1}})
         result = events.get(timeout=15)["params"]
         assert result["version"] == 1
         assert any(d["range"]["start"] == {"line": 1, "character": 13}
+                   for d in result["diagnostics"]), result
+        assert any(d["range"]["start"]["line"] == 2 and d["severity"] == 1
                    for d in result["diagnostics"]), result
         send("textDocument/didChange", {"textDocument": {"uri": uri, "version": 2},
                                        "contentChanges": [{"text": "module main\nmain(){1}"}]})
@@ -68,6 +70,24 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         warning, = warnings["diagnostics"]
         assert warning["severity"] == 2 and "source" not in warning and "code" not in warning
         assert warning["data"]["code"] == "analysis.unused_private_declaration"
+        broken = root / "src/broken.pooka"
+        broken.write_text("module broken\n")
+        broken_uri = broken.as_uri()
+        send("textDocument/didOpen", {"textDocument": {
+            "uri": broken_uri, "text": "module broken\nlet x = 1\n", "version": 1,
+        }})
+        diagnostics = [events.get(timeout=15)["params"] for _ in range(2)]
+        by_uri = {document["uri"]: document["diagnostics"] for document in diagnostics}
+        assert any(d["severity"] == 2 for d in by_uri[uri]), by_uri
+        assert any(d["severity"] == 1 for d in by_uri[broken_uri]), by_uri
+        send("textDocument/didChange", {"textDocument": {"uri": uri, "version": 4},
+                                       "contentChanges": [{"text": 'module main\n_unused() { Nil }\nmain() -> Int { "wrong" }\n'}]})
+        diagnostics = [events.get(timeout=15)["params"] for _ in range(2)]
+        by_uri = {document["uri"]: document["diagnostics"] for document in diagnostics}
+        assert {d["severity"] for d in by_uri[uri]} == {1, 2}, by_uri
+        assert any(d["severity"] == 1 for d in by_uri[broken_uri]), by_uri
+        send("textDocument/didClose", {"textDocument": {"uri": broken_uri}})
+        assert events.get(timeout=10)["params"]["uri"] == broken_uri
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
         send("shutdown", request=3)
