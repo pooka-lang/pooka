@@ -23,6 +23,7 @@ test_name: coloured_help_snapshot_test
   <ESC>[38;2;255;137;31mexport<ESC>[0m <ESC>[38;2;117;97;142m<escript|shipment|release><ESC>[0m                Export an escript, production shipment or OTP release
   <ESC>[38;2;255;137;31mpublish<ESC>[0m <ESC>[38;2;117;97;142m[options]<ESC>[0m                                Prepare or publish a package and documentation to Hex
   <ESC>[38;2;255;137;31mclean<ESC>[0m                                            Remove build artifacts
+  <ESC>[38;2;255;137;31mlsp<ESC>[0m                                              Run the language server, to be used by editors
   <ESC>[38;2;255;137;31m-h, --help<ESC>[0m                                       Print this help
   <ESC>[38;2;255;137;31m-V, --version<ESC>[0m                                    Print the version
 
