@@ -56,11 +56,24 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         server.stdin.flush()
 
     try:
-        startup = frame("initialize", {}, 1)
+        startup = frame("initialize", {"capabilities": {
+            "workspace": {"didChangeWatchedFiles": {"dynamicRegistration": True}},
+        }}, 1)
         for start, end in ((0, 7), (7, 24), (24, len(startup))):
             server.stdin.write(startup[start:end])
             server.stdin.flush()
         assert events.get(timeout=10)["result"]["capabilities"]["documentFormattingProvider"]
+        send("initialized", {})
+        registration = events.get(timeout=10)
+        assert registration["method"] == "client/registerCapability"
+        registered, = registration["params"]["registrations"]
+        assert registered["method"] == "workspace/didChangeWatchedFiles"
+        assert {item["globPattern"] for item in registered["registerOptions"]["watchers"]} == {
+            "**/pooka.toml", "**/pooka.lock", "**/*.pooka",
+        }
+        acknowledgement = json.dumps({"jsonrpc": "2.0", "id": registration["id"], "result": None}).encode()
+        server.stdin.write(f"Content-Length: {len(acknowledgement)}\r\n\r\n".encode() + acknowledgement)
+        server.stdin.flush()
         server.stdin.write(frame("unknown/one", request=90) + frame("unknown/two", request=91))
         server.stdin.flush()
         for request in (90, 91):
@@ -163,7 +176,7 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         assert any("pooka deps download" in d["message"] for d in by_uri[other_uri]), by_uri
         assert any(d["data"]["code"] == "analysis.duplicate_declaration" for d in by_uri[uri]), by_uri
         manifest.write_text(clean_manifest)
-        send("textDocument/didSave", {"textDocument": {"uri": other_uri}})
+        send("workspace/didChangeWatchedFiles", {"changes": [{"uri": manifest.as_uri(), "type": 2}]})
         reports = [events.get(timeout=15)["params"] for _ in range(2)]
         by_uri = {document["uri"]: document["diagnostics"] for document in reports}
         assert by_uri[other_uri] == [], by_uri

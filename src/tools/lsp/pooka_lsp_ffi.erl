@@ -10,7 +10,7 @@ serve() ->
     Server = self(),
     Reader = spawn_link(fun() -> read_messages(Server) end),
     Analyzer = spawn(fun() -> analyze_queue(Server) end),
-    try loop(starting,#{},0,undefined,Analyzer)
+    try loop(starting,#{},0,undefined,{Analyzer,false})
     after
         unlink(Reader),
         exit(Reader,kill),
@@ -48,7 +48,8 @@ loop(Stage,Docs,Revision,Timer,Analyzer) ->
             error_response(null,-32600,<<"Invalid request">>),
             loop(Stage,Docs,Revision,Timer,Analyzer);
         {analyze,Revision} when Stage =:= running ->
-            Analyzer ! {analyze,Revision,Docs},
+            {Worker,_} = Analyzer,
+            Worker ! {analyze,Revision,Docs},
             loop(Stage,Docs,Revision,undefined,Analyzer);
         {checked,Revision,Results} when Stage =:= running ->
             lists:foreach(fun({Uri,Version,Diagnostics}) -> publish(Uri,Version,Diagnostics) end,Results),
@@ -96,11 +97,21 @@ headers(Length) ->
         _ -> error
     end.
 
-dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}, starting, Docs, R, T, Analyzer) ->
+dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}=Request, starting, Docs, R, T, {Worker,_}) ->
     reply(Id,#{capabilities => #{positionEncoding => <<"utf-16">>,
         documentFormattingProvider => true, documentSymbolProvider => true,
         textDocumentSync => #{openClose => true,change => 1,save => true}},
         serverInfo => #{name => <<"Pooka">>}}),
+    loop(running,Docs,R,T,{Worker,supports_file_watch(Request)});
+dispatch(#{<<"method">> := <<"initialized">>}, running, Docs, R, T, {Worker,true}) ->
+    register_file_watch(),
+    loop(running,Docs,R,T,{Worker,false});
+dispatch(#{<<"method">> := <<"workspace/didChangeWatchedFiles">>,
+           <<"params">> := #{<<"changes">> := Changes}}, running, Docs, R, T, Analyzer)
+  when is_list(Changes), Changes =/= [] ->
+    changed(Docs,R,T,Analyzer);
+dispatch(#{<<"id">> := <<"pooka-watch-files">>}=Response, running, Docs, R, T, Analyzer)
+  when not is_map_key(<<"method">>,Response) ->
     loop(running,Docs,R,T,Analyzer);
 dispatch(#{<<"method">> := <<"shutdown">>, <<"id">> := Id}, running, Docs, R, T, Analyzer) ->
     reply(Id,null), loop(stopping,Docs,R,T,Analyzer);
@@ -158,6 +169,23 @@ dispatch(#{<<"id">> := Id}, starting, Docs, R, T, Analyzer) ->
 dispatch(#{<<"id">> := Id}, Stage, Docs, R, T, Analyzer) ->
     error_response(Id,-32601,<<"Method not found">>), loop(Stage,Docs,R,T,Analyzer);
 dispatch(_,Stage,Docs,R,T,Analyzer) -> loop(Stage,Docs,R,T,Analyzer).
+
+supports_file_watch(Request) ->
+    case Request of
+        #{<<"params">> := #{<<"capabilities">> := #{<<"workspace">> :=
+            #{<<"didChangeWatchedFiles">> := #{<<"dynamicRegistration">> := true}}}}} -> true;
+        _ -> false
+    end.
+
+%% Register only after the client has finished initialization. Editors that
+%% cannot register file watchers still refresh on ordinary document events.
+register_file_watch() ->
+    Watchers = [#{globPattern => Glob} ||
+                Glob <- [<<"**/pooka.toml">>, <<"**/pooka.lock">>, <<"**/*.pooka">>]],
+    send(#{id => <<"pooka-watch-files">>,method => <<"client/registerCapability">>,
+           params => #{registrations => [#{id => <<"pooka-watch-files">>,
+               method => <<"workspace/didChangeWatchedFiles">>,
+               registerOptions => #{watchers => Watchers}}]}}).
 
 changed(Docs,R,Timer,Analyzer) ->
     case Timer of undefined -> ok; _ -> erlang:cancel_timer(Timer) end,
