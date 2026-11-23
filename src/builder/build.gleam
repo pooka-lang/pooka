@@ -298,19 +298,22 @@ fn compile_project(
       Failure(Error(Nil), [project_error.to_diagnostic(error)])
     }),
   )
-  use inferred <- result.try(
-    infer.preview_report(checked)
-    |> result.map_error(fn(error) {
-      let failure = preview_failure(error)
-      Failure(
-        Ok(checked),
-        check.display_diagnostics(checked, failure.diagnostics),
+  use inferred <- result.try(case infer.preview_report(checked) {
+    Ok(inferred) -> {
+      case diagnostic.has_errors(inferred.diagnostics) {
+        True ->
+          Error(recover_failure(graph, mode, checked, inferred.diagnostics))
+        False -> Ok(inferred)
+      }
+    }
+    Error(error) ->
+      recover_failure(
+        graph,
+        mode,
+        checked,
+        check.display_diagnostics(checked, preview_failure(error).diagnostics),
       )
-    }),
-  )
-  use Nil <- result.try(case diagnostic.has_errors(inferred.diagnostics) {
-    True -> Error(Failure(Ok(checked), inferred.diagnostics))
-    False -> Ok(Nil)
+      |> Error
   })
   use Nil <- result.try(
     lockfile.validate(checked.project)
@@ -886,6 +889,34 @@ fn failure(checked: check.Report, path: String, detail: String) -> Failure {
     diagnostic.error("build.failed", "build failed")
     |> diagnostic.conclusion(path <> ": " <> detail),
   ])
+}
+
+/// Reuse the editor's recovery pass for failed development compilation.
+/// The ordinary build remains authoritative and successful builds do not recheck.
+fn recover_failure(
+  graph: package.Graph,
+  mode: layout.Mode,
+  checked: check.Report,
+  original: List(Diagnostic),
+) -> Failure {
+  case mode {
+    layout.Production -> Failure(Ok(checked), original)
+    layout.Development ->
+      case check.check_graph_with_overlays(graph, True, dict.new(), True) {
+        Error(_) -> Failure(Ok(checked), original)
+        Ok(recovered) -> {
+          let extra = case infer.preview_in_memory(recovered) {
+            Ok(report) -> report.diagnostics
+            Error(infer.InvalidProgram(report)) -> check.diagnostics(report)
+            Error(_) -> check.diagnostics(recovered)
+          }
+          Failure(
+            Ok(recovered),
+            list.append(original, extra) |> list.unique |> diagnostic.sort,
+          )
+        }
+      }
+  }
 }
 
 fn preview_failure(error: infer.PreviewError) -> Failure {
