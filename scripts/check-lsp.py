@@ -141,6 +141,34 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
                                            "contentChanges": [{"text": original}]})
         report = events.get(timeout=15)["params"]
         assert report["version"] == 18 and report["diagnostics"] == [], report
+        send("textDocument/didChange", {"textDocument": {"uri": uri, "version": 19},
+                                       "contentChanges": [{"text": "module main\nfoo() { 1 }\nfoo() { 2 }\n"}]})
+        report = events.get(timeout=15)["params"]
+        duplicate, = [d for d in report["diagnostics"] if d["data"]["code"] == "analysis.duplicate_declaration"]
+        related, = duplicate["relatedInformation"]
+        assert related["location"]["uri"] == uri
+        assert related["location"]["range"]["start"] == {"line": 1, "character": 0}
+        assert related["message"]
+        isolated = Path(directory) / "another project"
+        (isolated / "src").mkdir(parents=True)
+        manifest = isolated / "pooka.toml"
+        clean_manifest = 'name = "another"\nversion = "1.0.0"\n'
+        manifest.write_text(clean_manifest + '[dependencies]\npooka_lsp_missing_fixture = "== 1.0.0"\n')
+        other = isolated / "src/main.pooka"
+        other.write_text(original)
+        other_uri = other.as_uri()
+        send("textDocument/didOpen", {"textDocument": {"uri": other_uri, "text": original, "version": 1}})
+        reports = [events.get(timeout=15)["params"] for _ in range(2)]
+        by_uri = {document["uri"]: document["diagnostics"] for document in reports}
+        assert any("pooka deps download" in d["message"] for d in by_uri[other_uri]), by_uri
+        assert any(d["data"]["code"] == "analysis.duplicate_declaration" for d in by_uri[uri]), by_uri
+        manifest.write_text(clean_manifest)
+        send("textDocument/didSave", {"textDocument": {"uri": other_uri}})
+        reports = [events.get(timeout=15)["params"] for _ in range(2)]
+        by_uri = {document["uri"]: document["diagnostics"] for document in reports}
+        assert by_uri[other_uri] == [], by_uri
+        send("textDocument/didClose", {"textDocument": {"uri": other_uri}})
+        assert events.get(timeout=10)["params"]["uri"] == other_uri
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
         send("shutdown", request=3)

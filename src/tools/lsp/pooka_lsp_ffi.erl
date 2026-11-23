@@ -204,22 +204,27 @@ analyze_group({ok,Root},Files) ->
         io:format(standard_error,"Pooka LSP analysis failed: ~p:~p~n",[Class,Reason]),
         []
     end,
-    [{Uri,Version,for_document(Path,Root,Source,Diagnostics)} || {Uri,Path,Version,Source} <- Files];
+    Open = maps:from_list([{Path,{Uri,Source}} || {Uri,Path,_,Source} <- Files]),
+    [{Uri,Version,for_document(Path,Root,Source,Open,Diagnostics)}
+     || {Uri,Path,Version,Source} <- Files];
 analyze_group(_,Files) -> [{Uri,Version,[]} || {Uri,_,Version,_} <- Files].
 
-for_document(Path,Root,Source,Diagnostics) ->
+for_document(Path,Root,Source,Open,Diagnostics) ->
     lists:filtermap(fun(Diagnostic) ->
         Labels = maps:get(<<"labels">>,Diagnostic,[]),
         case [Location || #{<<"importance">> := <<"primary">>,
                             <<"location">> := #{<<"path">> := File}=Location} <- Labels,
                           filename:absname(File,Root) =:= Path] of
-            [Location|_] -> {true,diagnostic(Diagnostic,Location,Source)};
-            [] when Labels =:= [] -> {true,diagnostic(Diagnostic,#{},Source)};
+            [Location|_] ->
+                Others = [Label || #{<<"location">> := At} = Label <- Labels, At =/= Location],
+                Related = lists:filtermap(fun(Label) -> related(Label,Root,Open) end,Others),
+                {true,diagnostic(Diagnostic,Location,Source,Related)};
+            [] when Labels =:= [] -> {true,diagnostic(Diagnostic,#{},Source,[])};
             [] -> false
         end
     end,Diagnostics).
 
-diagnostic(Value,Location,Source) ->
+diagnostic(Value,Location,Source,Related) ->
     Start = position(maps:get(<<"start">>,Location,#{}),Source),
     End = position(maps:get(<<"end">>,Location,#{}),Source),
     Severity = case maps:get(<<"severity">>,Value) of
@@ -227,8 +232,40 @@ diagnostic(Value,Location,Source) ->
     end,
     Message = lists:join(<<"\n">>,[Text || Key <- [<<"title">>,<<"conclusion">>],
                               Text <- [maps:get(Key,Value,<<>>)], Text =/= <<>>]),
-    #{range => #{start => Start,'end' => End},severity => Severity,
-      data => #{code => maps:get(<<"id">>,Value)},message => iolist_to_binary(Message)}.
+    Diagnostic = #{range => #{start => Start,'end' => End},severity => Severity,
+                   data => #{code => maps:get(<<"id">>,Value)},
+                   message => iolist_to_binary(Message)},
+    case Related of [] -> Diagnostic; _ -> Diagnostic#{relatedInformation => Related} end.
+
+%% Byte offsets refer to the checked source. Prefer an unsaved buffer and
+%% only use the disk version for a file the editor has not opened.
+related(#{<<"location">> := #{<<"path">> := File}=Location,
+          <<"message">> := Message},Root,Open) ->
+    Path = filename:absname(File,Root),
+    case related_source(Path,Open) of
+        {ok,Uri,Source} ->
+            {true,#{location => #{uri => Uri,range => lsp_range(Location,Source)},
+                    message => Message}};
+        error -> false
+    end.
+
+related_source(Path,Open) ->
+    case maps:find(Path,Open) of
+        {ok,{Uri,Source}} -> {ok,Uri,Source};
+        error ->
+            case file:read_file(Path) of
+                {ok,Source} -> {ok,file_uri(Path),Source};
+                _ -> error
+            end
+    end.
+
+file_uri(Path) ->
+    Normal = binary:replace(Path,<<"\\">>,<<"/">>,[global]),
+    case Normal of
+        <<"//",Rest/binary>> -> <<"file://",(uri_string:quote(Rest, "/:"))/binary>>;
+        <<"/",_/binary>> -> <<"file://",(uri_string:quote(Normal, "/:"))/binary>>;
+        _ -> <<"file:///",(uri_string:quote(Normal, "/:"))/binary>>
+    end.
 
 symbol_ranges(Symbol,Source) ->
     Range = maps:get(<<"range">>,Symbol),
