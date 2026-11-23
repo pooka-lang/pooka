@@ -5,10 +5,11 @@
 import builder/check
 import compiler/analysis/resolve
 import compiler/compiler
+import compiler/parser/ast
 import filepath
 import gleam/dict
 import gleam/list
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import project/package
@@ -24,18 +25,26 @@ pub fn target(
 ) -> Result(#(String, Int, Int), Nil) {
   let file = compiler.check_editor_source(path, source)
   case resolve.editor_definition(file.parsed.module, path, offset) {
-    Ok(span) -> Ok(#(path, span.start.byte_offset, span.end.byte_offset))
-    Error(_) -> import_target(file, path, offset, overlays)
+    Ok(resolve.LocalTarget(span)) ->
+      Ok(#(path, span.start.byte_offset, span.end.byte_offset))
+    Ok(resolve.ImportTarget(reference)) ->
+      cross_file_target(file, path, FromReference(reference), overlays)
+    Error(_) -> cross_file_target(file, path, AtImport(offset), overlays)
   }
 }
 
-fn import_target(
+type ImportQuery {
+  FromReference(resolve.ImportReference)
+  AtImport(Int)
+}
+
+fn cross_file_target(
   current: compiler.Checked,
   path: String,
-  offset: Int,
+  query: ImportQuery,
   overlays: List(#(String, String)),
 ) -> Result(#(String, Int, Int), Nil) {
-  use _ <- result.try(find_import(current, offset))
+  use #(original, member) <- result.try(find_import(current, query))
   use root <- result.try(analysis.workspace(path))
   use loaded <- result.try(project.load(root) |> result.replace_error(Nil))
   use graph <- result.try(
@@ -47,11 +56,14 @@ fn import_target(
   )
   use file <- result.try(
     list.find(report.files, fn(file) {
-      filepath.join(root, check.display_path(report, file.path)) == path
-      || check.display_path(report, file.path) == path
+      absolute_path(report, file.path) == path
     }),
   )
-  use imported <- result.try(find_import(file, offset))
+  use imported <- result.try(
+    list.find(file.parsed.module.imports, fn(imported) {
+      imported.span == original.span
+    }),
+  )
   let owner_name = package.owner(file.path, loaded.name)
   use owner <- result.try(
     list.find(graph.packages, fn(p) { p.name == owner_name }),
@@ -81,10 +93,7 @@ fn import_target(
     })
   case targets, visible_targets {
     [_], [target] -> {
-      let span = case target.parsed.module.header {
-        Some(header) -> header.name.span
-        None -> location.Span(location.start(), location.start())
-      }
+      use span <- result.try(target_span(target, member))
       Ok(#(
         absolute_path(report, target.path),
         span.start.byte_offset,
@@ -95,14 +104,82 @@ fn import_target(
   }
 }
 
-fn find_import(file: compiler.Checked, offset: Int) {
-  list.find(file.parsed.module.imports, fn(imported) {
-    contains(imported.module.span, offset)
-    || case imported.alias {
-      Some(alias) -> contains(alias.span, offset)
-      None -> False
+fn find_import(file: compiler.Checked, query: ImportQuery) {
+  let candidates =
+    list.flat_map(file.parsed.module.imports, fn(imported) {
+      case query {
+        FromReference(resolve.QualifiedImport(alias, member)) ->
+          case module_alias(imported) == Ok(alias) {
+            True -> [#(imported, Some(member))]
+            False -> []
+          }
+        FromReference(resolve.SelectiveImport(binding)) ->
+          list.filter_map(imported.items, fn(item) {
+            let local = case item.alias {
+              Some(alias) -> alias.name
+              None -> item.name.name
+            }
+            case local == binding {
+              True -> Ok(#(imported, Some(item.name.name)))
+              False -> Error(Nil)
+            }
+          })
+        AtImport(offset) -> {
+          let on_module =
+            contains(imported.module.span, offset)
+            || case imported.alias {
+              Some(alias) -> contains(alias.span, offset)
+              None -> False
+            }
+          case on_module {
+            True -> [#(imported, None)]
+            False ->
+              list.filter_map(imported.items, fn(item) {
+                case contains(item.span, offset) {
+                  True -> Ok(#(imported, Some(item.name.name)))
+                  False -> Error(Nil)
+                }
+              })
+          }
+        }
+      }
+    })
+  case candidates {
+    [target] -> Ok(target)
+    _ -> Error(Nil)
+  }
+}
+
+fn module_alias(imported: ast.Import) -> Result(String, Nil) {
+  case imported.alias {
+    Some(alias) -> Ok(alias.name)
+    None -> list.last(imported.module.segments)
+  }
+}
+
+fn target_span(
+  target: compiler.Checked,
+  member: Option(String),
+) -> Result(Span, Nil) {
+  case member {
+    None ->
+      Ok(case target.parsed.module.header {
+        Some(header) -> header.name.span
+        None -> location.Span(location.start(), location.start())
+      })
+    Some(member) -> {
+      let names =
+        list.filter_map(target.parsed.module.declarations, ast.declaration_name)
+      case
+        list.filter(names, fn(name) {
+          name.name == member && !string.starts_with(member, "_")
+        })
+      {
+        [name] -> Ok(name.span)
+        _ -> Error(Nil)
+      }
     }
-  })
+  }
 }
 
 fn contains(span: Span, offset: Int) -> Bool {

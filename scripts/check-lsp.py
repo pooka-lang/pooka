@@ -262,6 +262,61 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
                     "end": {"line": target_line, "character": end},
                 },
             }, response
+        second = root / "src/second.pooka"
+        second.write_text("module second\n\nvalue() { 2 }\n")
+        imports = [
+            "module main",
+            "import dependency as dep",
+            "import second.{value as other}",
+            "first() { dep.value() }",
+            "selected() { other() }",
+            "shadow(dep: Int, other: Int) { dep + other }",
+        ]
+        send("textDocument/didChange", {
+            "textDocument": {"uri": uri, "version": 23},
+            "contentChanges": [{"text": "\n".join(imports) + "\n"}],
+        })
+        assert events.get(timeout=15)["params"]["diagnostics"] == []
+        for line, name, target_uri, target_line, start, end in [
+            (2, "other", second.resolve().as_uri(), 2, 0, 5),
+            (3, "value", dependency.resolve().as_uri(), 1, 0, 5),
+            (4, "other", second.resolve().as_uri(), 2, 0, 5),
+            (5, "dep +", uri, 5, 7, 10),
+            (5, "other }", uri, 5, 17, 22),
+        ]:
+            send("textDocument/definition", {
+                "textDocument": {"uri": uri},
+                "position": {"line": line, "character": imports[line].index(name)},
+            }, 25)
+            response = events.get(timeout=10)
+            assert response["id"] == 25 and response["result"] == {
+                "uri": target_uri,
+                "range": {
+                    "start": {"line": target_line, "character": start},
+                    "end": {"line": target_line, "character": end},
+                },
+            }, response
+        second_uri = second.as_uri()
+        send("textDocument/didOpen", {"textDocument": {
+            "uri": second_uri,
+            "version": 1,
+            "text": "module second\n\n// Inserted in the editor\nvalue() { 2 }\n",
+        }})
+        reports = [events.get(timeout=15)["params"] for _ in range(2)]
+        assert {report["uri"] for report in reports} == {uri, second_uri}
+        assert all(report["diagnostics"] == [] for report in reports)
+        send("textDocument/definition", {
+            "textDocument": {"uri": uri},
+            "position": {"line": 4, "character": imports[4].index("other")},
+        }, 26)
+        response = events.get(timeout=10)
+        assert response["id"] == 26 and response["result"] == {
+            "uri": second_uri,
+            "range": {"start": {"line": 3, "character": 0}, "end": {"line": 3, "character": 5}},
+        }, response
+        send("textDocument/didClose", {"textDocument": {"uri": second_uri}})
+        assert events.get(timeout=10)["params"]["uri"] == second_uri
+        assert events.get(timeout=15)["params"]["uri"] == uri
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
         send("shutdown", request=3)

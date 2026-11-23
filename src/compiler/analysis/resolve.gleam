@@ -65,6 +65,17 @@ type Event {
 type DefinitionTarget {
   LocalDefinition(Span)
   ModuleDefinition(String)
+  ImportDefinition(ImportReference)
+}
+
+pub type ImportReference {
+  QualifiedImport(alias: String, member: String)
+  SelectiveImport(binding: String)
+}
+
+pub type EditorTarget {
+  LocalTarget(Span)
+  ImportTarget(ImportReference)
 }
 
 /// Resolve a use in recovered editor syntax with the compiler's lexical scopes.
@@ -72,7 +83,7 @@ pub fn editor_definition(
   module: ast.Module,
   path: String,
   offset: Int,
-) -> Result(Span, Nil) {
+) -> Result(EditorTarget, Nil) {
   let events = resolve_events(module, path, dict.new(), Some([]))
   use event <- result.try(
     list.find(events, fn(event) {
@@ -84,11 +95,12 @@ pub fn editor_definition(
     }),
   )
   case event {
-    Definition(_, LocalDefinition(span)) -> Ok(span)
+    Definition(_, LocalDefinition(span)) -> Ok(LocalTarget(span))
+    Definition(_, ImportDefinition(reference)) -> Ok(ImportTarget(reference))
     Definition(_, ModuleDefinition(name)) -> {
       let names = list.filter_map(module.declarations, ast.declaration_name)
       case list.filter(names, fn(candidate) { candidate.name == name }) {
-        [target] -> Ok(target.span)
+        [target] -> Ok(LocalTarget(target.span))
         _ -> Error(Nil)
       }
     }
@@ -1249,7 +1261,13 @@ fn qualified(
               }
           }
       }
-      list.append(resolved, own)
+      case scope.editor_errors, form, own {
+        Some(_), NameOnly, [] -> [
+          Definition(span, ImportDefinition(QualifiedImport(module, name))),
+          ..resolved
+        ]
+        _, _, _ -> list.append(resolved, own)
+      }
     }
   }
 }
@@ -1344,6 +1362,9 @@ fn definition_use(
             Ok(target) -> [Definition(span, LocalDefinition(target))]
             Error(_) -> []
           }
+        False, False, False, True, _ -> [
+          Definition(span, ImportDefinition(SelectiveImport(name))),
+        ]
         False, False, False, False, True -> [
           Definition(span, ModuleDefinition(name)),
         ]
