@@ -182,6 +182,21 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         assert by_uri[other_uri] == [], by_uri
         send("textDocument/didClose", {"textDocument": {"uri": other_uri}})
         assert events.get(timeout=10)["params"]["uri"] == other_uri
+        dependency = root / "src/dependency.pooka"
+        dependency.write_text("module dependency\nvalue() { 1 }\n")
+        send("textDocument/didChange", {
+            "textDocument": {"uri": uri, "version": 20},
+            "contentChanges": [{"text": "module main\nimport dependency\nmain() -> Int { dependency.value() }\n"}],
+        })
+        report = events.get(timeout=15)["params"]
+        assert report["version"] == 20 and report["diagnostics"] == [], report
+        for value, expected_errors in [('"changed"', 1), ("1", 0)]:
+            dependency.write_text(f"module dependency\nvalue() {{ {value} }}\n")
+            send("workspace/didChangeWatchedFiles", {"changes": [{"uri": dependency.as_uri(), "type": 2}]})
+            report = events.get(timeout=15)["params"]
+            assert report["uri"] == uri and report["version"] == 20, report
+            assert sum(d["severity"] == 1 for d in report["diagnostics"]) == expected_errors, report
+        assert source.read_text() == original
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
         send("shutdown", request=3)
