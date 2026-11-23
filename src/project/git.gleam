@@ -27,6 +27,7 @@ pub fn load(
   reference: String,
   pins: List(lockfile.Locked),
   update: Bool,
+  offline: Bool,
 ) -> Result(Project, project_error.ProjectError) {
   let url = normalize_url(owner.root, url)
   let identity = d.repository_identity(url)
@@ -58,6 +59,7 @@ pub fn load(
       url,
       reference,
       pin,
+      offline,
     )
     |> result.map_error(DependencyProblem(
       filepath.join(owner.root, "pooka.toml"),
@@ -78,4 +80,5 @@ fn checkout(
   url: String,
   reference: String,
   pin: Option(String),
+  offline: Bool,
 ) -> Result(#(String, String), String)

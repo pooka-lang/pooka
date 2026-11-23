@@ -72,6 +72,23 @@ pub fn preview(directory: String) -> Result(Report, PreviewError) {
 }
 
 pub fn preview_report(checked: check.Report) -> Result(Report, PreviewError) {
+  preview_with_cache(
+    checked,
+    filepath.join(checked.project.root, "build/analysis"),
+  )
+}
+
+/// Editor buffers must never populate the build's on-disk analysis cache.
+pub fn preview_in_memory(
+  checked: check.Report,
+) -> Result(Report, PreviewError) {
+  preview_with_cache(checked, "")
+}
+
+fn preview_with_cache(
+  checked: check.Report,
+  cache: String,
+) -> Result(Report, PreviewError) {
   use Nil <- result.try(case diagnostic.has_errors(check.diagnostics(checked)) {
     True -> Error(InvalidProgram(checked))
     False -> Ok(Nil)
@@ -96,14 +113,7 @@ pub fn preview_report(checked: check.Report) -> Result(Report, PreviewError) {
   )
   let state = unify.new()
   let initial =
-    Progress(
-      dict.new(),
-      [],
-      state,
-      check.diagnostics(checked),
-      filepath.join(checked.project.root, "build/analysis"),
-      [],
-    )
+    Progress(dict.new(), [], state, check.diagnostics(checked), cache, [])
   use progress <- result.try(
     list.try_fold(ordered, initial, fn(progress, source) {
       infer_source(source, Production, progress)

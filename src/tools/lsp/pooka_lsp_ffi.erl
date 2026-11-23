@@ -7,26 +7,56 @@
 
 serve() ->
     ok = io:setopts(standard_io,[binary,{encoding,latin1}]),
-    loop(starting,#{}).
+    Server = self(),
+    Reader = spawn_link(fun() -> read_messages(Server) end),
+    try loop(starting,#{},0,undefined)
+    after unlink(Reader), exit(Reader,kill) end.
 
-loop(Stage, Documents) ->
+read_messages(Server) ->
     case headers(undefined) of
         {ok,Length} ->
-            case file:read(standard_io,Length) of
-                {ok,Body} when byte_size(Body) =:= Length ->
-                    try json:decode(Body) of
-                        Message when is_map(Message) -> dispatch(Message,Stage,Documents);
-                        _ -> error_response(null,-32600,<<"Invalid request">>), loop(Stage,Documents)
-                    catch error:_ -> error_response(null,-32700,<<"Parse error">>), loop(Stage,Documents) end;
-                _ -> disconnected()
+            case bytes(Length,[]) of
+                {ok,Body} ->
+                    Message = try json:decode(Body) catch error:_ -> invalid_json end,
+                    Server ! {message,Message},
+                    read_messages(Server);
+                error -> Server ! disconnected
             end;
-        _ -> disconnected()
+        error -> Server ! disconnected
+    end.
+
+bytes(0,Parts) -> {ok,iolist_to_binary(lists:reverse(Parts))};
+bytes(Length,Parts) ->
+    case file:read(standard_io,Length) of
+        {ok,Chunk} when byte_size(Chunk) > 0 ->
+            bytes(Length-byte_size(Chunk),[Chunk|Parts]);
+        _ -> error
+    end.
+
+loop(Stage,Docs,Revision,Timer) ->
+    receive
+        {message,invalid_json} ->
+            error_response(null,-32700,<<"Parse error">>),
+            loop(Stage,Docs,Revision,Timer);
+        {message,Message} when is_map(Message) -> dispatch(Message,Stage,Docs,Revision,Timer);
+        {message,_} ->
+            error_response(null,-32600,<<"Invalid request">>),
+            loop(Stage,Docs,Revision,Timer);
+        {analyze,Revision} when Stage =:= running ->
+            Parent = self(),
+            spawn(fun() -> Parent ! {checked,Revision,analyze(Docs)} end),
+            loop(Stage,Docs,Revision,undefined);
+        {checked,Revision,Results} when Stage =:= running ->
+            lists:foreach(fun({Uri,Version,Diagnostics}) -> publish(Uri,Version,Diagnostics) end,Results),
+            loop(Stage,Docs,Revision,Timer);
+        disconnected -> disconnected();
+        _ -> loop(Stage,Docs,Revision,Timer)
     end.
 
 headers(Length) ->
     case io:get_line(standard_io, "") of
-        <<"\r\n">> when is_integer(Length) -> {ok,Length};
-        <<"\r\n">> -> error;
+        <<"\n">> when is_integer(Length) -> {ok,Length};
+        <<"\n">> -> error;
         Line when is_binary(Line), byte_size(Line) =< 8192 ->
             case binary:split(string:trim(Line), <<":">>) of
                 [Name, Value] ->
@@ -44,19 +74,142 @@ headers(Length) ->
         _ -> error
     end.
 
-dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}, starting, Docs) ->
-    reply(Id,#{capabilities => #{positionEncoding => <<"utf-16">>},
-               serverInfo => #{name => <<"Pooka">>}}),
-    loop(running,Docs);
-dispatch(#{<<"method">> := <<"shutdown">>, <<"id">> := Id}, running, Docs) ->
-    reply(Id,null), loop(stopping,Docs);
-dispatch(#{<<"method">> := <<"exit">>}, stopping, _) -> 0;
-dispatch(#{<<"method">> := <<"exit">>}, _, _) -> 1;
-dispatch(#{<<"id">> := Id}, starting, Docs) ->
-    error_response(Id,-32002,<<"Server not initialized">>), loop(starting,Docs);
-dispatch(#{<<"id">> := Id}, Stage, Docs) ->
-    error_response(Id,-32601,<<"Method not found">>), loop(Stage,Docs);
-dispatch(_,Stage,Docs) -> loop(Stage,Docs).
+dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}, starting, Docs, R, T) ->
+    reply(Id,#{capabilities => #{positionEncoding => <<"utf-16">>,
+        documentFormattingProvider => true,
+        textDocumentSync => #{openClose => true,change => 1,save => true}},
+        serverInfo => #{name => <<"Pooka">>}}),
+    loop(running,Docs,R,T);
+dispatch(#{<<"method">> := <<"shutdown">>, <<"id">> := Id}, running, Docs, R, T) ->
+    reply(Id,null), loop(stopping,Docs,R,T);
+dispatch(#{<<"method">> := <<"exit">>}, stopping, _, _, _) -> 0;
+dispatch(#{<<"method">> := <<"exit">>}, _, _, _, _) -> 1;
+dispatch(#{<<"method">> := <<"textDocument/didOpen">>,
+           <<"params">> := #{<<"textDocument">> :=
+               #{<<"uri">> := Uri,<<"text">> := Text,<<"version">> := Version}}}, running, Docs, R, T) ->
+    case file_path(Uri) of
+        {ok,Path} -> changed(maps:put(Uri,{Path,Version,Text},Docs),R,T);
+        error -> loop(running,Docs,R,T)
+    end;
+dispatch(#{<<"method">> := <<"textDocument/didChange">>,
+           <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri,<<"version">> := Version},
+                             <<"contentChanges">> := Changes}}, running, Docs, R, T) ->
+    case {maps:find(Uri,Docs),is_list(Changes)} of
+        {{ok,{Path,Old,_}},true} when Version > Old, Changes =/= [] ->
+            case lists:last(Changes) of
+                #{<<"text">> := Text} when is_binary(Text) ->
+                    changed(maps:put(Uri,{Path,Version,Text},Docs),R,T);
+                _ -> loop(running,Docs,R,T)
+            end;
+        _ -> loop(running,Docs,R,T)
+    end;
+dispatch(#{<<"method">> := <<"textDocument/didSave">>}, running, Docs, R, T) ->
+    changed(Docs,R,T);
+dispatch(#{<<"method">> := <<"textDocument/didClose">>,
+           <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri}}}, running, Docs, R, T) ->
+    publish(Uri,null,[]), changed(maps:remove(Uri,Docs),R,T);
+dispatch(#{<<"method">> := <<"textDocument/formatting">>, <<"id">> := Id,
+           <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri}}}, running, Docs, R, T) ->
+    Edits = case maps:find(Uri,Docs) of
+        {ok,{_,_,Source}} ->
+            case 'tools@formatter':format(Source) of
+                {ok,Formatted} when Formatted =/= Source ->
+                    [#{range => #{start => position(#{},Source),
+                                   'end' => position(#{<<"byte_offset">> => byte_size(Source)},Source)},
+                       newText => Formatted}];
+                _ -> []
+            end;
+        error -> []
+    end,
+    reply(Id,Edits), loop(running,Docs,R,T);
+dispatch(#{<<"id">> := Id}, starting, Docs, R, T) ->
+    error_response(Id,-32002,<<"Server not initialized">>), loop(starting,Docs,R,T);
+dispatch(#{<<"id">> := Id}, Stage, Docs, R, T) ->
+    error_response(Id,-32601,<<"Method not found">>), loop(Stage,Docs,R,T);
+dispatch(_,Stage,Docs,R,T) -> loop(Stage,Docs,R,T).
+
+changed(Docs,R,Timer) ->
+    case Timer of undefined -> ok; _ -> erlang:cancel_timer(Timer) end,
+    Next = erlang:send_after(180,self(),{analyze,R+1}),
+    loop(running,Docs,R+1,Next).
+
+publish(Uri,Version,Diagnostics) ->
+    Params = #{uri => Uri,diagnostics => Diagnostics},
+    send(#{method => <<"textDocument/publishDiagnostics">>,
+           params => case Version of null -> Params; _ -> Params#{version => Version} end}).
+
+file_path(Uri) ->
+    try uri_string:parse(Uri) of
+        #{scheme := <<"file">>,path := Raw} ->
+            Path = uri_string:percent_decode(Raw),
+            case {os:type(),Path} of
+                {{win32,_},<<$/,Drive,$:,Rest/binary>>} -> canonical_path(<<Drive,$:,Rest/binary>>);
+                _ -> canonical_path(Path)
+            end;
+        _ -> error
+    catch _:_ -> error end.
+
+canonical_path(Path) ->
+    case pooka_package_ffi:canonical(filename:dirname(Path)) of
+        {ok,Canonical} -> {ok,filename:join(Canonical,filename:basename(Path))};
+        _ -> {ok,Path}
+    end.
+
+analyze(Docs) ->
+    Groups = maps:fold(fun(Uri,{Path,Version,Source},Acc) ->
+        Workspace = 'tools@lsp@analysis':workspace(Path),
+        maps:update_with(Workspace,fun(L) -> [{Uri,Path,Version,Source}|L] end,
+                         [{Uri,Path,Version,Source}],Acc)
+    end,#{},Docs),
+    lists:append([analyze_group(Workspace,Files) || {Workspace,Files} <- maps:to_list(Groups)]).
+
+analyze_group({ok,Root},Files) ->
+    Sources = [{Path,Source} || {_,Path,_,Source} <- Files],
+    Diagnostics = try
+        #{<<"diagnostics">> := Values} =
+            json:decode('tools@lsp@analysis':diagnostics(Root,Sources)),
+        Values
+    catch Class:Reason ->
+        io:format(standard_error,"Pooka LSP analysis failed: ~p:~p~n",[Class,Reason]),
+        []
+    end,
+    [{Uri,Version,for_document(Path,Root,Source,Diagnostics)} || {Uri,Path,Version,Source} <- Files];
+analyze_group(_,Files) -> [{Uri,Version,[]} || {Uri,_,Version,_} <- Files].
+
+for_document(Path,Root,Source,Diagnostics) ->
+    lists:filtermap(fun(Diagnostic) ->
+        Labels = maps:get(<<"labels">>,Diagnostic,[]),
+        case [Location || #{<<"importance">> := <<"primary">>,
+                            <<"location">> := #{<<"path">> := File}=Location} <- Labels,
+                          filename:absname(File,Root) =:= Path] of
+            [Location|_] -> {true,diagnostic(Diagnostic,Location,Source)};
+            [] when Labels =:= [] -> {true,diagnostic(Diagnostic,#{},Source)};
+            [] -> false
+        end
+    end,Diagnostics).
+
+diagnostic(Value,Location,Source) ->
+    Start = position(maps:get(<<"start">>,Location,#{}),Source),
+    End = position(maps:get(<<"end">>,Location,#{}),Source),
+    Severity = case maps:get(<<"severity">>,Value) of
+        <<"error">> -> 1; <<"warning">> -> 2; _ -> 3
+    end,
+    Message = lists:join(<<"\n">>,[Text || Key <- [<<"title">>,<<"conclusion">>],
+                              Text <- [maps:get(Key,Value,<<>>)], Text =/= <<>>]),
+    #{range => #{start => Start,'end' => End},severity => Severity,
+      source => <<"pooka">>,code => maps:get(<<"id">>,Value),message => iolist_to_binary(Message)}.
+
+position(Location,Source) ->
+    Offset = min(byte_size(Source),max(0,maps:get(<<"byte_offset">>,Location,0))),
+    Prefix = binary:part(Source,0,Offset),
+    Lines = binary:split(Prefix,<<"\n">>,[global]),
+    Line = lists:last(Lines),
+    Utf16 = unicode:characters_to_binary(Line,utf8,{utf16,little}),
+    Units = case Utf16 of
+        Binary when is_binary(Binary) -> byte_size(Binary) div 2;
+        {_,Binary,_} -> byte_size(Binary) div 2
+    end,
+    #{line => length(Lines)-1,character => Units}.
 
 reply(Id,Result) -> send(#{id => Id, result => Result}).
 error_response(Id,Code,Message) ->

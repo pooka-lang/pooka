@@ -11,7 +11,7 @@
 %%% ```
 
 -module(pooka_package_ffi).
--export([canonical/1, canonical_relative/2, download_name/1, write_atomic/2, git_url/2, git_checkout/5, http_get/1, hex_unpack/3, hex_cached/2, native_build/7, stage_library/4, stage_assets/3, native_directory/1, using_directory/2, repository_identity/1, rebar_config/1]).
+-export([canonical/1, canonical_relative/2, download_name/1, write_atomic/2, git_url/2, git_checkout/6, http_get/1, hex_unpack/3, hex_cached/2, native_build/7, stage_library/4, stage_assets/3, native_directory/1, using_directory/2, repository_identity/1, rebar_config/1]).
 %% Resolve against the declaring package with the host's filename rules.
 %% A Windows drive or UNC root must replace Owner, rather than become a child
 %% of it. filename:absname/2 also preserves drive-relative path semantics.
@@ -82,7 +82,7 @@ lexical([Part|Rest],Path) -> lexical(Rest,filename:join(Path,Part)).
 
 
 %% Resolve and stage the selected Git source through the package cache boundary.
-git_checkout(CacheBinary,NameBinary,URLBinary,RefBinary,Pin) ->
+git_checkout(CacheBinary,NameBinary,URLBinary,RefBinary,Pin,Offline) ->
     try
         Cache = unicode:characters_to_list(CacheBinary),
         Name = unicode:characters_to_list(NameBinary),
@@ -96,8 +96,10 @@ git_checkout(CacheBinary,NameBinary,URLBinary,RefBinary,Pin) ->
                 Destination = filename:join(Cache,Key ++ "-" ++ Revision),
                 case filelib:is_dir(Destination) of
                     true -> verify_checkout(Destination,Revision), {ok,{unicode:characters_to_binary(Destination),RevisionBinary}};
+                    false when Offline -> package_fail("Run pooka deps download to make this Git dependency available.");
                     false -> clone_checkout(Cache,Key,URL,Reference,Revision)
                 end;
+            none when Offline -> package_fail("Run pooka deps download to lock this Git dependency.");
             none -> clone_checkout(Cache,Key,URL,Reference,none)
         end
     catch throw:{package_error,Reason} -> {error,binary:replace(Reason,URLBinary,repository_identity(URLBinary),[global])};

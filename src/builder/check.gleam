@@ -89,7 +89,7 @@ pub fn check_graph(
   check_graph_with_overlays(graph, include_tests, dict.new())
 }
 
-fn check_graph_with_overlays(
+pub fn check_graph_with_overlays(
   graph: package.Graph,
   include_tests: Bool,
   overlays: Dict(String, String),
