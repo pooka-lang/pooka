@@ -61,6 +61,13 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         symbols = events.get(timeout=10)["result"]
         assert [symbol["name"] for symbol in symbols] == ["main"], symbols
         assert symbols[0]["selectionRange"]["start"] == {"line": 1, "character": 0}
+        send("textDocument/didChange", {"textDocument": {"uri": uri, "version": 3},
+                                       "contentChanges": [{"text": "module main\n_unused() { Nil }\nmain() { Nil }\n"}]})
+        warnings = events.get(timeout=15)["params"]
+        assert warnings["version"] == 3
+        warning, = warnings["diagnostics"]
+        assert warning["severity"] == 2 and "source" not in warning and "code" not in warning
+        assert warning["data"]["code"] == "analysis.unused_private_declaration"
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
         send("shutdown", request=3)

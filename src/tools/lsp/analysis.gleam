@@ -8,6 +8,7 @@ import diagnostics/diagnostic
 import diagnostics/json
 import filepath
 import gleam/dict
+import gleam/list
 import gleam/result
 import project/package
 import project/project
@@ -31,9 +32,12 @@ pub fn diagnostics(root: String, sources: List(#(String, String))) -> String {
         Ok(report) -> report.diagnostics
         Error(infer.InvalidProgram(checked)) -> check.diagnostics(checked)
         Error(infer.UnsupportedSource(path, feature)) ->
-          check.display_diagnostics(checked, [
-            infer.unsupported_diagnostic(path, feature),
-          ])
+          list.append(
+            check.diagnostics(checked),
+            check.display_diagnostics(checked, [
+              infer.unsupported_diagnostic(path, feature),
+            ]),
+          )
         Error(infer.ProjectFailed(error)) -> [
           project_error.to_diagnostic(error),
         ]

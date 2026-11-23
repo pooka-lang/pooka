@@ -206,7 +206,7 @@ diagnostic(Value,Location,Source) ->
     Message = lists:join(<<"\n">>,[Text || Key <- [<<"title">>,<<"conclusion">>],
                               Text <- [maps:get(Key,Value,<<>>)], Text =/= <<>>]),
     #{range => #{start => Start,'end' => End},severity => Severity,
-      source => <<"pooka">>,code => maps:get(<<"id">>,Value),message => iolist_to_binary(Message)}.
+      data => #{code => maps:get(<<"id">>,Value)},message => iolist_to_binary(Message)}.
 
 symbol_ranges(Symbol,Source) ->
     Range = maps:get(<<"range">>,Symbol),
