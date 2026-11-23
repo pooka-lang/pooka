@@ -196,6 +196,18 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
             report = events.get(timeout=15)["params"]
             assert report["uri"] == uri and report["version"] == 20, report
             assert sum(d["severity"] == 1 for d in report["diagnostics"]) == expected_errors, report
+        lockfile = root / "pooka.lock"
+        lockfile.write_text("version = 999\n")
+        send("workspace/didChangeWatchedFiles", {"changes": [{"uri": lockfile.as_uri(), "type": 1}]})
+        report = events.get(timeout=15)["params"]
+        assert report["uri"] == uri and report["version"] == 20, report
+        assert any(d["severity"] == 1 and "lockfile" in d["message"].lower()
+                   for d in report["diagnostics"]), report
+        lockfile.unlink()
+        send("workspace/didChangeWatchedFiles", {"changes": [{"uri": lockfile.as_uri(), "type": 3}]})
+        report = events.get(timeout=15)["params"]
+        assert report["uri"] == uri and report["version"] == 20, report
+        assert report["diagnostics"] == [], report
         assert source.read_text() == original
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
