@@ -405,6 +405,33 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
                     "end": {"line": target_line, "character": start + 3},
                 },
             }, response
+        local_package = Path(directory) / "local package"
+        (local_package / "src").mkdir(parents=True)
+        (local_package / "pooka.toml").write_text('name = "local_package"\nversion = "1.0.0"\n')
+        external = local_package / "src/catalogue.pooka"
+        external.write_text("module catalogue\nclass Entry { new() { Nil } }\ncount() { 1 }\n")
+        with (root / "pooka.toml").open("a") as manifest:
+            manifest.write('\n[dependencies]\nlocal_package = { path = "../local package" }\n')
+        dependency_main = "get() { #(catalogue.Entry(), catalogue.count()) }"
+        send("textDocument/didChange", {
+            "textDocument": {"uri": uri, "version": 26},
+            "contentChanges": [{"text": f"module main\nimport catalogue\n{dependency_main}\n"}],
+        })
+        report = events.get(timeout=15)["params"]
+        assert report["version"] == 26 and report["diagnostics"] == [], report
+        for name, target_line, start, end in [("Entry", 1, 14, 17), ("count", 2, 0, 5)]:
+            send("textDocument/definition", {
+                "textDocument": {"uri": uri},
+                "position": {"line": 2, "character": dependency_main.index(name)},
+            }, 29)
+            response = events.get(timeout=10)
+            assert response["id"] == 29 and response["result"] == {
+                "uri": external.resolve().as_uri(),
+                "range": {
+                    "start": {"line": target_line, "character": start},
+                    "end": {"line": target_line, "character": end},
+                },
+            }, response
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
         send("shutdown", request=3)
