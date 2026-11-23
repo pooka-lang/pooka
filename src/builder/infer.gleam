@@ -72,12 +72,67 @@ pub fn preview(directory: String) -> Result(Report, PreviewError) {
 }
 
 pub fn preview_report(checked: check.Report) -> Result(Report, PreviewError) {
-  use Nil <- result.try(case diagnostic.has_errors(check.diagnostics(checked)) {
+  preview_with_cache(
+    checked,
+    filepath.join(checked.project.root, "build/analysis"),
+    False,
+    False,
+  )
+}
+
+/// Editor buffers must never populate the build's on-disk analysis cache.
+pub fn preview_in_memory(
+  checked: check.Report,
+) -> Result(Report, PreviewError) {
+  // Editor reports retain lints from intact buffers even when a neighbour
+  // is still being typed and has structural errors.
+  let files = list.map(checked.files, compiler.with_lints)
+  preview_with_cache(check.Report(..checked, files:), "", True, False)
+}
+
+pub fn definitions_in_memory(
+  checked: check.Report,
+) -> Result(Report, PreviewError) {
+  preview_with_cache(checked, "", True, True)
+}
+
+fn preview_with_cache(
+  checked: check.Report,
+  cache: String,
+  editor: Bool,
+  track_members: Bool,
+) -> Result(Report, PreviewError) {
+  let structural = check.diagnostics(checked)
+  use Nil <- result.try(case !editor && diagnostic.has_errors(structural) {
     True -> Error(InvalidProgram(checked))
     False -> Ok(Nil)
   })
+  // Skip broken modules and their importers during inference. Continue
+  // checking independent modules rather than inventing missing types.
+  let files = case editor {
+    False -> checked.files
+    True -> {
+      let blocked =
+        list.flat_map(structural, fn(item) {
+          case item.severity {
+            diagnostic.ErrorSeverity ->
+              list.filter_map(item.labels, fn(label) {
+                case label.importance {
+                  diagnostic.Primary -> Ok(label.location.path)
+                  diagnostic.Secondary -> Error(Nil)
+                }
+              })
+            _ -> []
+          }
+        })
+      list.filter(checked.files, fn(file) {
+        !diagnostic.has_errors(file.diagnostics)
+        && !list.contains(blocked, check.display_path(checked, file.path))
+      })
+    }
+  }
   let sources =
-    list.filter_map(checked.files, fn(file) {
+    list.filter_map(files, fn(file) {
       compiler.expected_module_path(file.path)
       |> result.map(fn(identity) {
         module.SourceModule(identity, file.path, file.parsed.module)
@@ -96,21 +151,14 @@ pub fn preview_report(checked: check.Report) -> Result(Report, PreviewError) {
   )
   let state = unify.new()
   let initial =
-    Progress(
-      dict.new(),
-      [],
-      state,
-      check.diagnostics(checked),
-      filepath.join(checked.project.root, "build/analysis"),
-      [],
-    )
+    Progress(dict.new(), [], state, check.diagnostics(checked), cache, [])
   use progress <- result.try(
     list.try_fold(ordered, initial, fn(progress, source) {
-      infer_source(source, Production, progress)
+      infer_next(source, Production, progress, editor, track_members)
     }),
   )
   let tests =
-    list.filter_map(checked.files, fn(file) {
+    list.filter_map(files, fn(file) {
       case compiler.expected_module_path(file.path) {
         Ok(_) -> Error(Nil)
         Error(Nil) ->
@@ -119,7 +167,7 @@ pub fn preview_report(checked: check.Report) -> Result(Report, PreviewError) {
     })
   use progress <- result.try(
     list.try_fold(tests, progress, fn(progress, source) {
-      infer_source(source, TestClient, progress)
+      infer_next(source, TestClient, progress, editor, track_members)
     }),
   )
   Ok(Report(
@@ -130,10 +178,43 @@ pub fn preview_report(checked: check.Report) -> Result(Report, PreviewError) {
   ))
 }
 
+fn infer_next(
+  source: module.SourceModule,
+  role: Role,
+  progress: Progress,
+  editor: Bool,
+  track_members: Bool,
+) -> Result(Progress, PreviewError) {
+  let blocked =
+    editor
+    && list.any(source.syntax.imports, fn(imported) {
+      !dict.has_key(
+        progress.available,
+        string.join(imported.module.segments, "/"),
+      )
+    })
+  case blocked {
+    True -> Ok(progress)
+    False -> {
+      case infer_source(source, role, progress, track_members) {
+        Error(UnsupportedSource(path, feature)) if editor ->
+          Ok(
+            Progress(..progress, diagnostics: [
+              unsupported_diagnostic(path, feature),
+              ..progress.diagnostics
+            ]),
+          )
+        outcome -> outcome
+      }
+    }
+  }
+}
+
 fn infer_source(
   source: module.SourceModule,
   role: Role,
   progress: Progress,
+  track_members: Bool,
 ) -> Result(Progress, PreviewError) {
   let dependencies =
     source.syntax.imports
@@ -145,6 +226,10 @@ fn infer_source(
       source.identity,
       list.map(dependencies, fn(dep) { dep.inferred.state }),
     )
+  let state = case track_members {
+    True -> unify.track_members(state)
+    False -> state
+  }
   let key =
     type_cache.key(
       source,

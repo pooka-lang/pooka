@@ -48,15 +48,15 @@ pub fn every_command_of_the_specification_exists_test() {
   let names = list.map(cli.commands(), fn(info) { info.name })
   [
     "new", "check", "build", "run", "test", "format", "docs", "add", "remove",
-    "deps", "export", "publish", "clean",
+    "deps", "export", "publish", "clean", "lsp",
   ]
   |> list.each(fn(name) {
     assert list.contains(names, name)
   })
 
   assert !list.contains(names, "init")
-  assert !list.contains(names, "lsp")
-  assert cli.parse(["lsp"]) == cli.Unknown("lsp")
+  assert cli.parse(["lsp"]) == cli.Lsp([])
+  assert cli.parse(["lsp", "--help"]) == cli.CommandHelp(["lsp"])
 }
 
 pub fn help_snapshot_test() {
@@ -595,4 +595,24 @@ pub fn selected_run_targets_receive_their_own_help_and_option_names_test() {
     == cli.Run(["-m", "tool", "--module", "other"])
   assert cli.parse(["run", "--help"]) == cli.CommandHelp(["run"])
   assert cli.parse(["run", "-m", "--help"]) == cli.CommandHelp(["run"])
+}
+
+pub fn run_reports_recovered_errors_and_warnings_together_test() {
+  use directory <- support.with_directory("cli_recovered_diagnostics")
+  support.write(
+    directory <> "/pooka.toml",
+    "name = \"app\"\nversion = \"0.1.0\"\n",
+  )
+  support.write(
+    directory <> "/src/main.pooka",
+    "module main\n\nimport asdf\n\nmain() {\n  let n = 1\n}\n\nlet s = jjj\n\nlet a = sdsda\n",
+  )
+  let outcome = support.cli_main(["run"], command.plain(directory))
+  assert outcome.status == 1
+  assert outcome.stdout == ""
+  assert string.contains(outcome.stderr, "Found 3 errors")
+  assert string.contains(outcome.stderr, "unknown module")
+  assert string.contains(outcome.stderr, "let s = jjj")
+  assert string.contains(outcome.stderr, "let a = sdsda")
+  assert string.contains(outcome.stderr, "warning: unused local binding")
 }

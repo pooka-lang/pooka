@@ -44,18 +44,47 @@ fn block_body(
       let span = state.span_from(parser, open.span.start)
       Ok(#(ast.Block(statements: list.reverse(statements), span:), parser))
     }
-    Lexeme(token: token.EndOfFile, ..) as found ->
-      Error(state.unclosed(
-        parser,
-        open,
-        token.RightBrace,
-        parse_error.BlockBody,
-        found,
-      ))
+    Lexeme(token: token.EndOfFile, ..) as found -> {
+      let error =
+        state.unclosed(
+          parser,
+          open,
+          token.RightBrace,
+          parse_error.BlockBody,
+          found,
+        )
+      case state.recovers_blocks(parser) {
+        True ->
+          Ok(#(
+            ast.Block(
+              list.reverse(statements),
+              state.span_from(parser, open.span.start),
+            ),
+            state.report(parser, error),
+          ))
+        False -> Error(error)
+      }
+    }
     _ -> {
-      use #(statement, parser) <- result.try(parse_statement(parser))
-      use parser <- result.try(expect_statement_end(parser))
-      block_body(parser, open, [statement, ..statements])
+      let statement = {
+        use #(statement, next) <- result.try(parse_statement(parser))
+        use next <- result.try(expect_statement_end(next))
+        Ok(#(statement, next))
+      }
+      case statement {
+        Ok(#(statement, next)) ->
+          block_body(next, open, [statement, ..statements])
+        Error(error) ->
+          case state.recovers_blocks(parser) {
+            True ->
+              block_body(
+                state.recover_statement(parser, error),
+                open,
+                statements,
+              )
+            False -> Error(error)
+          }
+      }
     }
   }
 }

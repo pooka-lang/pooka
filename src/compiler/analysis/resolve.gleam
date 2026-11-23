@@ -16,6 +16,7 @@ import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/set.{type Set}
 import gleam/string
 import utilities/location.{type Span}
@@ -56,6 +57,105 @@ pub type Resolution {
 type Event {
   Issue(Diagnostic)
   Usage(Use)
+  LocalBinding(ast.Name)
+  LocalRead(Span)
+  Definition(Span, DefinitionTarget)
+}
+
+type DefinitionTarget {
+  LocalDefinition(Span)
+  ModuleDefinition(String)
+  ConstructorDefinition(String)
+  ImportDefinition(ImportReference)
+}
+
+pub type ImportReference {
+  QualifiedImport(alias: String, member: String, constructor: Bool)
+  SelectiveImport(binding: String, constructor: Bool)
+}
+
+pub type EditorTarget {
+  LocalTarget(Span)
+  ImportTarget(ImportReference)
+}
+
+/// Resolve a use in recovered editor syntax with the compiler's lexical scopes.
+pub fn editor_definition(
+  module: ast.Module,
+  path: String,
+  offset: Int,
+) -> Result(EditorTarget, Nil) {
+  let events = resolve_events(module, path, dict.new(), Some([]))
+  events
+  |> list.find_map(fn(event) {
+    case event {
+      Definition(span, target)
+        if span.start.byte_offset <= offset && offset < span.end.byte_offset
+      -> definition_target(module, target)
+      _ -> Error(Nil)
+    }
+  })
+}
+
+fn definition_target(
+  module: ast.Module,
+  target: DefinitionTarget,
+) -> Result(EditorTarget, Nil) {
+  case target {
+    LocalDefinition(span) -> Ok(LocalTarget(span))
+    ImportDefinition(reference) -> Ok(ImportTarget(reference))
+    ConstructorDefinition(name) ->
+      constructor_span(module, name) |> result.map(LocalTarget)
+    ModuleDefinition(name) ->
+      case
+        list.filter_map(module.declarations, ast.declaration_name)
+        |> list.filter(fn(candidate) { candidate.name == name })
+      {
+        [target] -> Ok(LocalTarget(target.span))
+        _ -> Error(Nil)
+      }
+  }
+}
+
+// Select the explicit constructor when present and the type name for shorthand.
+pub fn constructor_span(module: ast.Module, name: String) -> Result(Span, Nil) {
+  let candidates =
+    list.filter_map(module.declarations, fn(declaration) {
+      case declaration {
+        ast.ClassDeclaration(value) if value.name.name == name ->
+          Ok(#(value.name.span, value.members))
+        ast.ActorDeclaration(value) if value.name.name == name ->
+          Ok(#(value.name.span, value.members))
+        _ -> Error(Nil)
+      }
+    })
+  case candidates {
+    [#(type_name, members)] ->
+      case
+        list.filter_map(members, fn(member) {
+          case member {
+            // Shorthand classes synthesize the body and constructor from the
+            // same field span. They have no source `new` keyword.
+            ast.ConstructorMember(value) if value.span != value.body.span ->
+              Ok(value.span.start)
+            _ -> Error(Nil)
+          }
+        })
+      {
+        [] -> Ok(type_name)
+        [start] ->
+          Ok(location.Span(
+            start,
+            location.Position(
+              ..start,
+              column: start.column + 3,
+              byte_offset: start.byte_offset + 3,
+            ),
+          ))
+        _ -> Error(Nil)
+      }
+    _ -> Error(Nil)
+  }
 }
 
 type Scope {
@@ -64,6 +164,8 @@ type Scope {
     declared: Set(String),
     imported: Set(String),
     members: Set(String),
+    member_sites: List(ast.Name),
+    local_superclass: Option(String),
     declaration: Option(String),
     types: Set(String),
     type_arities: Dict(String, Int),
@@ -73,6 +175,8 @@ type Scope {
     exports: Exports,
     path: String,
     locals: Set(String),
+    local_spans: Dict(String, Span),
+    editor_errors: Option(List(Span)),
     fields: Dict(String, ast.Field),
     direct_fields: Set(String),
     owner: Owner,
@@ -112,6 +216,47 @@ pub fn resolve_with_exports(
   path: String,
   exports: Exports,
 ) -> Resolution {
+  resolve_mode(module, path, exports, None)
+}
+
+/// Check local uses in recovered declarations. We keep warnings separate from
+/// name errors here because incomplete editor syntax can omit declarations.
+pub fn editor_local_warnings(
+  module: ast.Module,
+  path: String,
+  bad_spans: List(Span),
+) -> List(Diagnostic) {
+  resolve_mode(module, path, dict.new(), Some(bad_spans)).diagnostics
+  |> list.filter(fn(item) { item.id == "analysis.unused_local_binding" })
+}
+
+fn resolve_mode(
+  module: ast.Module,
+  path: String,
+  exports: Exports,
+  editor_errors: Option(List(Span)),
+) -> Resolution {
+  let events = resolve_events(module, path, exports, editor_errors)
+  Resolution(
+    list.append(issues(events), unused_bindings(events, path))
+      |> diagnostic.sort,
+    events
+      |> list.filter_map(fn(event) {
+        case event {
+          Usage(value) -> Ok(value)
+          _ -> Error(Nil)
+        }
+      })
+      |> list.unique,
+  )
+}
+
+fn resolve_events(
+  module: ast.Module,
+  path: String,
+  exports: Exports,
+  editor_errors: Option(List(Span)),
+) -> List(Event) {
   let core_types = [
     "Int",
     "Float",
@@ -211,6 +356,8 @@ pub fn resolve_with_exports(
       declared: set.from_list(declared),
       imported: set.from_list(imported),
       members: set.new(),
+      member_sites: [],
+      local_superclass: None,
       declaration: None,
       types: set.from_list(list.flatten([core_types, types, imported])),
       type_arities: dict.merge(core_arities, declared_arities),
@@ -220,6 +367,8 @@ pub fn resolve_with_exports(
       exports:,
       path:,
       locals: set.new(),
+      local_spans: dict.new(),
+      editor_errors:,
       fields: dict.new(),
       direct_fields: set.new(),
       owner: ModuleOwner,
@@ -256,19 +405,44 @@ pub fn resolve_with_exports(
       }
     })
     |> dict.from_list
-  let events =
-    module.declarations |> list.flat_map(declaration(_, scope, classes))
-  Resolution(
-    issues(events) |> diagnostic.sort,
+  module.declarations |> list.flat_map(declaration(_, scope, classes))
+}
+
+fn unused_bindings(events: List(Event), path: String) -> List(Diagnostic) {
+  let reads =
     events
-      |> list.filter_map(fn(event) {
-        case event {
-          Usage(value) -> Ok(value)
-          Issue(_) -> Error(Nil)
+    |> list.filter_map(fn(event) {
+      case event {
+        LocalRead(span) -> Ok(span)
+        _ -> Error(Nil)
+      }
+    })
+    |> set.from_list
+  list.filter_map(events, fn(event) {
+    case event {
+      LocalBinding(name) ->
+        case
+          set.contains(reads, name.span) || string.starts_with(name.name, "_")
+        {
+          True -> Error(Nil)
+          False ->
+            Ok(
+              diagnostic.warning(
+                "analysis.unused_local_binding",
+                "unused local binding",
+              )
+              |> diagnostic.primary(
+                location.new(path, name.span),
+                "`" <> name.name <> "` is never read",
+              )
+              |> diagnostic.conclusion(
+                "Use the binding or prefix its name with an underscore.",
+              ),
+            )
         }
-      })
-      |> list.unique,
-  )
+      _ -> Error(Nil)
+    }
+  })
 }
 
 type ReferenceForm {
@@ -302,9 +476,14 @@ fn unknown(
         && !set.contains(scope.declared, name)
         && !set.contains(scope.imported, name)
         && !set.contains(scope.qualifiers, name)
-      case builtin_echo {
-        True -> [Usage(Use(scope.declaration, BuiltinReference(name, span)))]
-        False -> reference(name, namespace, scope)
+      case builtin_echo, form {
+        True, _ -> [Usage(Use(scope.declaration, BuiltinReference(name, span)))]
+        False, WholeReference -> reference(name, namespace, scope)
+        False, NameOnly ->
+          list.append(
+            reference(name, namespace, scope),
+            definition_use(name, span, namespace, scope),
+          )
       }
     }
     False -> {
@@ -420,18 +599,35 @@ fn parameters(
   let names =
     list.filter_map(values, fn(value) {
       case value.name {
-        ast.NamedParameter(name) -> Ok(name)
+        ast.NamedParameter(name) -> {
+          let start = value.span.start
+          let end =
+            location.Position(
+              ..start,
+              column: start.column + string.length(name),
+              byte_offset: start.byte_offset + string.byte_size(name),
+            )
+          Ok(ast.Name(name, location.Span(start, end)))
+        }
         ast.DiscardedParameter -> Error(Nil)
       }
     })
   #(bind(scope, names), annotations)
 }
 
-fn bind(scope: Scope, names: List(String)) -> Scope {
+fn bind(scope: Scope, bindings: List(ast.Name)) -> Scope {
+  let names = list.map(bindings, fn(binding) { binding.name })
   Scope(
     ..scope,
     values: set.union(scope.values, set.from_list(names)),
     locals: set.union(scope.locals, set.from_list(names)),
+    local_spans: case scope.editor_errors {
+      None -> scope.local_spans
+      Some(_) ->
+        list.fold(bindings, scope.local_spans, fn(spans, binding) {
+          dict.insert(spans, binding.name, binding.span)
+        })
+    },
     qualifiers: set.difference(scope.qualifiers, set.from_list(names)),
   )
 }
@@ -471,12 +667,18 @@ fn declaration(
         list.append(parameters, optional_annotation(value.return_type, scope))
       })
     ast.ClassDeclaration(value) -> {
-      let members = inherited_members(value, classes, set.new())
+      let member_sites = inherited_members(value, classes, set.new())
+      let members = list.map(member_sites, fn(member) { member.name })
       let locals =
         Scope(
           ..scope,
           values: set.union(scope.values, set.from_list(members)),
           members: set.from_list(members),
+          member_sites: member_sites,
+          local_superclass: case value.superclass {
+            Some(ast.NamedType(None, name, _, _)) -> Some(name)
+            _ -> None
+          },
           qualifiers: set.difference(scope.qualifiers, set.from_list(members)),
           fields: inherited_fields(value, classes, set.new()),
           direct_fields: field_map(value.members) |> dict.keys |> set.from_list,
@@ -503,39 +705,37 @@ fn declaration(
         member_bodies(value.members, locals),
       ])
     }
-    ast.ActorDeclaration(value) ->
+    ast.ActorDeclaration(value) -> {
+      let member_sites = member_names(value.members)
+      let members =
+        set.from_list(list.map(member_sites, fn(member) { member.name }))
       list.append(
         list.flat_map(value.interfaces, annotation(_, scope)),
         member_bodies(
           value.members,
           Scope(
             ..scope,
-            values: set.union(
-              scope.values,
-              set.from_list(member_names(value.members)),
-            ),
+            values: set.union(scope.values, members),
             fields: field_map(value.members),
             direct_fields: field_map(value.members)
               |> dict.keys
               |> set.from_list,
-            qualifiers: set.difference(
-              scope.qualifiers,
-              set.from_list(member_names(value.members)),
-            ),
-            members: set.from_list(member_names(value.members)),
+            qualifiers: set.difference(scope.qualifiers, members),
+            members: members,
+            member_sites: member_sites,
             owner: ActorOwner,
           ),
         ),
       )
+    }
   }
 }
 
-fn member_names(values: List(ast.Member)) -> List(String) {
+fn member_names(values: List(ast.Member)) -> List(ast.Name) {
   list.filter_map(values, fn(value) {
     case value {
-      ast.FieldMember(value) -> Ok(value.name.name)
-      ast.MethodMember(value) | ast.BehaviourMember(value) ->
-        Ok(value.name.name)
+      ast.FieldMember(value) -> Ok(value.name)
+      ast.MethodMember(value) | ast.BehaviourMember(value) -> Ok(value.name)
       ast.ConstructorMember(_) -> Error(Nil)
     }
   })
@@ -545,7 +745,7 @@ fn inherited_members(
   value: ast.Class,
   classes: Dict(String, ast.Class),
   seen: Set(String),
-) -> List(String) {
+) -> List(ast.Name) {
   case set.contains(seen, value.name.name) {
     True -> []
     False -> {
@@ -559,7 +759,7 @@ fn inherited_members(
                 classes,
                 set.insert(seen, value.name.name),
               )
-              |> list.filter(fn(name) { !string.starts_with(name, "_") })
+              |> list.filter(fn(name) { !string.starts_with(name.name, "_") })
             Error(Nil) -> []
           }
         _ -> []
@@ -589,28 +789,34 @@ fn member_bodies(values: List(ast.Member), scope: Scope) -> List(Event) {
 }
 
 fn block(value: ast.Block, scope: Scope) -> List(Event) {
+  let value_span = value.span
   let #(_, diagnostics) =
-    list.fold(value.statements, #(scope, []), fn(acc, value) {
+    list.fold(value.statements, #(scope, []), fn(acc, statement) {
       let #(scope, diagnostics) = acc
-      case value {
+      case statement {
         ast.ExpressionStatement(value) -> #(
           scope,
           list.append(diagnostics, expression(value, scope)),
         )
         ast.LetStatement(pattern:, annotation:, value:, ..) -> {
-          let #(locals, pattern) = resolve_pattern(pattern, scope)
+          let #(locals, resolved_pattern) = resolve_pattern(pattern, scope)
+          let #(locals, bindings) = track_binding(locals, pattern, value_span)
+
           #(
             locals,
             list.flatten([
               diagnostics,
               expression(value, scope),
               optional_annotation(annotation, scope),
-              pattern,
+              resolved_pattern,
+              bindings,
             ]),
           )
         }
         ast.LetAssertStatement(pattern:, annotation:, value:, message:, ..) -> {
-          let #(locals, pattern) = resolve_pattern(pattern, scope)
+          let #(locals, resolved_pattern) = resolve_pattern(pattern, scope)
+          let #(locals, bindings) = track_binding(locals, pattern, value_span)
+
           #(
             locals,
             list.flatten([
@@ -618,7 +824,8 @@ fn block(value: ast.Block, scope: Scope) -> List(Event) {
               expression(value, scope),
               optional_annotation(annotation, scope),
               optional(message, scope),
-              pattern,
+              resolved_pattern,
+              bindings,
             ]),
           )
         }
@@ -627,20 +834,36 @@ fn block(value: ast.Block, scope: Scope) -> List(Event) {
   diagnostics
 }
 
+fn track_binding(
+  scope: Scope,
+  pattern: ast.Pattern,
+  block: Span,
+) -> #(Scope, List(Event)) {
+  let eligible = case scope.editor_errors {
+    None -> False
+    Some(errors) ->
+      !list.any(errors, fn(error) {
+        error.start.byte_offset >= block.start.byte_offset
+        && error.start.byte_offset <= block.end.byte_offset
+      })
+  }
+  case eligible {
+    False -> #(scope, [])
+    True -> #(scope, list.map(ast.pattern_bindings(pattern), LocalBinding))
+  }
+}
+
 fn resolve_pattern(value: ast.Pattern, scope: Scope) -> #(Scope, List(Event)) {
   case value {
     ast.AlternativePattern(values, _) -> {
       let events =
         list.flat_map(values, fn(value) { resolve_pattern(value, scope).1 })
-      #(
-        bind(
-          scope,
-          list.map(ast.pattern_bindings(value), fn(name) { name.name }),
-        ),
-        events,
-      )
+      #(bind(scope, ast.pattern_bindings(value)), events)
     }
-    ast.VariablePattern(name, _) -> #(bind(scope, [name]), [])
+    ast.VariablePattern(name, span) -> #(
+      bind(scope, [ast.Name(name, span)]),
+      [],
+    )
     ast.DiscardPattern(_)
     | ast.IntPattern(..)
     | ast.FloatPattern(..)
@@ -651,7 +874,7 @@ fn resolve_pattern(value: ast.Pattern, scope: Scope) -> #(Scope, List(Event)) {
     ast.ListPattern(elements, tail, _) -> {
       let #(scope, diagnostics) = patterns(elements, scope)
       let scope = case tail {
-        Some(ast.BoundTail(name, _)) -> bind(scope, [name])
+        Some(ast.BoundTail(name, span)) -> bind(scope, [ast.Name(name, span)])
         Some(ast.IgnoredTail(_)) | None -> scope
       }
       #(scope, diagnostics)
@@ -764,16 +987,69 @@ fn expression(value: ast.Expression, scope: Scope) -> List(Event) {
           Issue(namespace_misuse(name, span, scope, AsConstructor)),
           ..expressions(arguments, scope)
         ]
-        False -> expressions([ast.TypeName(name, span), ..arguments], scope)
+        False ->
+          list.append(
+            constructor_use(name, span, scope),
+            expressions([ast.TypeName(name, span), ..arguments], scope),
+          )
       }
+    ast.Call(
+      ast.FieldAccess(ast.Variable(alias, _), name, _) as callee,
+      arguments,
+      _,
+    ) ->
+      list.append(
+        qualified_constructor_use(alias, name.name, name.span, scope),
+        expressions([callee, ..arguments], scope),
+      )
     ast.Call(callee, arguments, _) -> expressions([callee, ..arguments], scope)
     ast.TupleAccess(subject:, ..) -> expression(subject, scope)
-    ast.FieldAccess(subject: ast.TypeName(namespace, _), name:, ..) ->
+    ast.FieldAccess(subject: ast.SuperExpression(_), name:, ..)
+      if name.name == "new"
+    ->
+      case scope.local_superclass {
+        Some(parent) -> constructor_use(parent, name.span, scope)
+        None -> []
+      }
+    ast.FieldAccess(subject: ast.TypeName(namespace, receiver), name:, ..) ->
       case dict.get(scope.externals, namespace) {
         Ok(functions) -> external_member(namespace, functions, name, scope)
-        Error(Nil) ->
-          expression(ast.TypeName(namespace, ast.expression_span(value)), scope)
+        Error(Nil) -> {
+          let resolved =
+            list.append(
+              unknown(
+                namespace,
+                ast.expression_span(value),
+                scope,
+                ValueName,
+                WholeReference,
+              ),
+              definition_use(namespace, receiver, ValueName, scope),
+            )
+          case name.name {
+            "new" ->
+              list.append(
+                constructor_use(namespace, name.span, scope),
+                resolved,
+              )
+            _ -> resolved
+          }
+        }
       }
+    ast.FieldAccess(
+      subject: ast.FieldAccess(ast.Variable(alias, _), type_name, _) as subject,
+      name:,
+      ..,
+    )
+      if name.name == "new"
+    ->
+      list.append(
+        qualified_constructor_use(alias, type_name.name, name.span, scope),
+        list.append(
+          expression(subject, scope),
+          private_member_use(name.name, scope),
+        ),
+      )
     ast.FieldAccess(subject:, name:, ..) ->
       list.append(
         list.append(
@@ -786,6 +1062,8 @@ fn expression(value: ast.Expression, scope: Scope) -> List(Event) {
               True -> qualified(module, name.name, name.span, scope, NameOnly)
               False -> []
             }
+          ast.SelfExpression(_) ->
+            member_definition(name.name, name.span, scope)
           _ -> []
         },
       )
@@ -982,7 +1260,7 @@ fn assignment_target(
                 set.contains(scope.direct_fields, name.name),
                 dict.has_key(scope.fields, name.name)
               {
-                True, _ -> []
+                True, _ -> member_definition(name.name, name.span, scope)
                 False, True -> [
                   Issue(assignment_error(
                     scope,
@@ -1096,7 +1374,16 @@ fn qualified(
               }
           }
       }
-      list.append(resolved, own)
+      case scope.editor_errors, form, own {
+        Some(_), NameOnly, [] -> [
+          Definition(
+            span,
+            ImportDefinition(QualifiedImport(module, name, False)),
+          ),
+          ..resolved
+        ]
+        _, _, _ -> list.append(resolved, own)
+      }
     }
   }
 }
@@ -1162,7 +1449,7 @@ fn issues(events: List(Event)) -> List(Diagnostic) {
   list.filter_map(events, fn(event) {
     case event {
       Issue(value) -> Ok(value)
-      Usage(_) -> Error(Nil)
+      _ -> Error(Nil)
     }
   })
 }
@@ -1171,11 +1458,88 @@ fn has_errors(events: List(Event)) -> Bool {
   diagnostic.has_errors(issues(events))
 }
 
+// Member lookup walks nearest declarations first, including inherited members.
+fn constructor_use(name: String, span: Span, scope: Scope) -> List(Event) {
+  case
+    scope.editor_errors,
+    set.contains(scope.imported, name),
+    set.contains(scope.declared, name)
+  {
+    Some(_), True, _ -> [
+      Definition(span, ImportDefinition(SelectiveImport(name, True))),
+    ]
+    Some(_), False, True -> [Definition(span, ConstructorDefinition(name))]
+    _, _, _ -> []
+  }
+}
+
+fn qualified_constructor_use(
+  alias: String,
+  name: String,
+  span: Span,
+  scope: Scope,
+) -> List(Event) {
+  case scope.editor_errors, set.contains(scope.qualifiers, alias) {
+    Some(_), True -> [
+      Definition(span, ImportDefinition(QualifiedImport(alias, name, True))),
+    ]
+    _, _ -> []
+  }
+}
+
+fn member_definition(name: String, span: Span, scope: Scope) -> List(Event) {
+  case scope.editor_errors {
+    None -> []
+    Some(_) ->
+      case list.find(scope.member_sites, fn(member) { member.name == name }) {
+        Ok(member) -> [Definition(span, LocalDefinition(member.span))]
+        Error(_) -> []
+      }
+  }
+}
+
+fn definition_use(
+  name: String,
+  span: Span,
+  namespace: Namespace,
+  scope: Scope,
+) -> List(Event) {
+  case scope.editor_errors, namespace {
+    Some(_), ValueName ->
+      case
+        set.contains(scope.locals, name),
+        set.contains(scope.members, name),
+        set.contains(scope.qualifiers, name),
+        set.contains(scope.imported, name),
+        set.contains(scope.declared, name)
+      {
+        True, _, _, _, _ ->
+          case dict.get(scope.local_spans, name) {
+            Ok(target) -> [Definition(span, LocalDefinition(target))]
+            Error(_) -> []
+          }
+        False, True, _, _, _ -> member_definition(name, span, scope)
+        False, False, False, True, _ -> [
+          Definition(span, ImportDefinition(SelectiveImport(name, False))),
+        ]
+        False, False, False, False, True -> [
+          Definition(span, ModuleDefinition(name)),
+        ]
+        _, _, _, _, _ -> []
+      }
+    _, _ -> []
+  }
+}
+
 fn reference(name: String, namespace: Namespace, scope: Scope) -> List(Event) {
   let local = namespace == ValueName && set.contains(scope.locals, name)
   let member = namespace == ValueName && set.contains(scope.members, name)
   case local, member {
-    True, _ -> []
+    True, _ ->
+      case dict.get(scope.local_spans, name) {
+        Ok(span) -> [LocalRead(span)]
+        Error(Nil) -> []
+      }
 
     False, True -> private_member_use(name, scope)
     False, False ->

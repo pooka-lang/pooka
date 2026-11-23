@@ -16,13 +16,25 @@ import gleam/list
 import utilities/location.{type Position, type Span, Span}
 
 pub opaque type Parser {
-  Parser(tokens: List(Lexeme), previous_end: Position, errors: List(ParseError))
+  Parser(
+    tokens: List(Lexeme),
+    previous_end: Position,
+    errors: List(ParseError),
+    recover_blocks: Bool,
+  )
 }
 
 pub type Parsed(a) =
   Result(#(a, Parser), ParseError)
 
 pub fn new(tokens: List(Lexeme)) -> Parser {
+  with_block_recovery(tokens, False)
+}
+
+pub fn with_block_recovery(
+  tokens: List(Lexeme),
+  recover_blocks: Bool,
+) -> Parser {
   let tokens =
     list.filter(tokens, fn(lexeme) {
       case lexeme.token {
@@ -34,7 +46,40 @@ pub fn new(tokens: List(Lexeme)) -> Parser {
     Ok(Lexeme(token: token.EndOfFile, ..)) -> tokens
     _ -> list.append(tokens, [end_of_file(location.start())])
   }
-  Parser(tokens:, previous_end: location.start(), errors: [])
+  Parser(tokens:, previous_end: location.start(), errors: [], recover_blocks:)
+}
+
+pub fn recovers_blocks(parser: Parser) -> Bool {
+  parser.recover_blocks
+}
+
+/// Resume at a following statement or the enclosing delimiter. Use the
+/// error location to avoid restarting inside a multiline failed expression.
+pub fn recover_statement(parser: Parser, error: ParseError) -> Parser {
+  let start = current(parser).span.start
+  let failed = parse_error.span(error).start
+  let parser = report(parser, error)
+  statement_boundary(skip(parser), start.line, failed.byte_offset, 0)
+}
+
+fn statement_boundary(
+  parser: Parser,
+  line: Int,
+  offset: Int,
+  depth: Int,
+) -> Parser {
+  let next = current(parser)
+  case next.token, depth {
+    token.EndOfFile, _ | token.RightBrace, 0 -> parser
+    token.LeftBrace, _ ->
+      statement_boundary(skip(parser), line, offset, depth + 1)
+    token.RightBrace, _ ->
+      statement_boundary(skip(parser), line, offset, depth - 1)
+    _, 0
+      if next.span.start.line > line && next.span.start.byte_offset >= offset
+    -> parser
+    _, _ -> statement_boundary(skip(parser), line, offset, depth)
+  }
 }
 
 fn end_of_file(at: Position) -> Lexeme {
@@ -243,7 +288,10 @@ fn synchronise_loop(parser: Parser) -> Parser {
   case lexeme.token, lexeme.span.start.column {
     token.EndOfFile, _ -> parser
     _, 1 ->
-      case starts_declaration(lexeme.token, peek(parser)) {
+      case
+        starts_declaration(lexeme.token, peek(parser))
+        || { parser.recover_blocks && lexeme.token == token.Let }
+      {
         True -> parser
         False -> synchronise_loop(skip(parser))
       }

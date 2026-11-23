@@ -71,6 +71,31 @@ pub fn resolve_selecting(
   fetch: hex.Fetch,
   unlocked: List(String),
 ) -> Result(Graph, ProjectError) {
+  resolve_with_transport(root, include_dev, update, fetch, unlocked, False)
+}
+
+/// Analyze dependencies already available to the editor without fetching.
+pub fn resolve_offline(root: Project) -> Result(Graph, ProjectError) {
+  resolve_with_transport(
+    root,
+    True,
+    False,
+    fn(_) {
+      Error("Run `pooka deps download` to make this dependency available.")
+    },
+    [],
+    True,
+  )
+}
+
+fn resolve_with_transport(
+  root: Project,
+  include_dev: Bool,
+  update: Bool,
+  fetch: hex.Fetch,
+  unlocked: List(String),
+  offline: Bool,
+) -> Result(Graph, ProjectError) {
   use canonical <- result.try(
     canonical(root.root)
     |> result.map_error(DependencyProblem(
@@ -86,7 +111,7 @@ pub fn resolve_selecting(
     case dep {
       dependency.Hex(name, requirement, _) ->
         hex.candidates(root, name, requirement, pins, update, fetch)
-      _ -> Ok([fn() { source(owner, root, dep, pins, update) }])
+      _ -> Ok([fn() { source(owner, root, dep, pins, update, offline) }])
     }
   }
   use graph <- result.try(solve(root, include_dev, pins, update, provider))
@@ -130,6 +155,7 @@ fn source(
   dep: dependency.Dependency,
   pins: List(lockfile.Locked),
   update: Bool,
+  offline: Bool,
 ) -> Result(Project, ProjectError) {
   case dep {
     dependency.Local(name, path) -> {
@@ -143,7 +169,7 @@ fn source(
       project.load_package(directory, name)
     }
     dependency.Git(name, url, reference) ->
-      git.load(root, owner, name, url, reference, pins, update)
+      git.load(root, owner, name, url, reference, pins, update, offline)
     dependency.Hex(_, _, _) -> panic as "registry candidates use their transport"
   }
 }
@@ -210,13 +236,17 @@ fn search(
                   check_hex(existing, requirement, root, include_dev)
                   |> result.map_error(failure)
                 _ -> {
-                  use requested <- result.try(source(
-                    owner,
+                  use candidates <- result.try(provider(
                     root,
+                    owner,
                     dep,
                     pins,
                     update,
                   ))
+                  use requested <- result.try(case candidates {
+                    [candidate, ..] -> candidate()
+                    [] -> Error(failure("No candidate for " <> dep.name))
+                  })
                   case
                     requested.root == existing.root
                     && requested.origin == existing.origin

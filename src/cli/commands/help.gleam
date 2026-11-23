@@ -265,6 +265,8 @@ fn details(name: String, rest: List(String)) -> Result(#(String, String), Nil) {
         " <name>",
         "Create a project directory with source, tests and a pooka.toml.\n\n",
       ))
+    "lsp", [] ->
+      Ok(#("", "Run the Pooka language server over stdin and stdout.\n\n"))
     "check", [] ->
       Ok(#(
         " [--verbose] [--json] [--fix]",

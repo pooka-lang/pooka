@@ -51,7 +51,7 @@ pub type Checked {
 /// source with a syntax error -> Checked report carrying that error
 /// ```
 pub fn check_source(path: String, source: String) -> Checked {
-  check_source_mode(path, source, True)
+  check_source_mode(path, source, True, False)
 }
 
 /// Run structural checking while excluding test declarations from the production
@@ -61,16 +61,21 @@ pub fn check_source(path: String, source: String) -> Checked {
 /// production build -> test declarations do not become application functions
 /// ```
 pub fn check_production_source(path: String, source: String) -> Checked {
-  check_source_mode(path, source, False)
+  check_source_mode(path, source, False, False)
+}
+
+pub fn check_editor_source(path: String, source: String) -> Checked {
+  check_source_mode(path, source, True, True)
 }
 
 fn check_source_mode(
   path: String,
   source: String,
   include_tests: Bool,
+  recover_blocks: Bool,
 ) -> Checked {
   let lexed = lexer.lex(source)
-  let parsed = parser.parse(lexed.tokens)
+  let parsed = parser.parse_with_recovery(lexed.tokens, recover_blocks)
   let test_diagnostics = case lexed.errors, parsed.errors {
     [], [] -> test_location.check(parsed.module, path)
     _, _ -> []
@@ -100,11 +105,24 @@ fn check_source_mode(
       !list.contains(lex_lines, parse_error.span(error).start.line)
     })
     |> list.map(parse_error.to_diagnostic(_, path))
+  let editor_warnings = case recover_blocks {
+    True ->
+      resolve.editor_local_warnings(
+        parsed.module,
+        path,
+        list.append(
+          list.map(lexed.errors, lex_error.span),
+          list.map(parsed.errors, parse_error.span),
+        ),
+      )
+    False -> []
+  }
   let diagnostics =
     [
       lex_diagnostics,
       parse_diagnostics,
       test_diagnostics,
+      editor_warnings,
       module_name_diagnostics(path, parsed.module),
 
       case lexed.errors, parsed.errors {

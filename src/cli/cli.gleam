@@ -34,6 +34,7 @@ import gleam/io
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
+import tools/lsp/server
 import tools/progress
 import utilities/colour
 import utilities/process
@@ -56,6 +57,7 @@ pub type Command {
   Deps(arguments: List(String))
   Export(arguments: List(String))
   Publish(arguments: List(String))
+  Lsp(arguments: List(String))
   Clean(arguments: List(String))
 
   Unknown(name: String)
@@ -76,6 +78,7 @@ pub fn commands() -> List(Info) {
     export.info,
     publish.info,
     clean.info,
+    server.info,
     help.info,
     version.info,
   ]
@@ -126,6 +129,7 @@ fn command(name: String, rest: List(String)) -> Command {
     "deps" -> Deps(rest)
     "export" -> Export(rest)
     "publish" -> Publish(rest)
+    "lsp" -> Lsp(rest)
     "clean" -> Clean(rest)
     other -> Unknown(other)
   }
@@ -152,6 +156,7 @@ pub fn execute(
     Deps(arguments) -> deps.run(arguments, environment)
     Export(arguments) -> export.run(arguments, environment)
     Publish(arguments) -> publish.run(arguments, environment)
+    Lsp(arguments) -> server.run(arguments, environment)
     Clean(arguments) -> clean.run(arguments, environment)
     Unknown(name) -> unknown(name, environment)
   }

@@ -23,6 +23,7 @@ Commands:
   export <escript|shipment|release>                Export an escript, production shipment or OTP release
   publish [options]                                Prepare or publish a package and documentation to Hex
   clean                                            Remove build artifacts
+  lsp                                              Run the language server, to be used by editors
   -h, --help                                       Print this help
   -V, --version                                    Print the version
 

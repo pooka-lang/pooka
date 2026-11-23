@@ -20,6 +20,7 @@ path(Directory,Identity) ->
 
 %% Verify the cache version, requested key and payload hash before decoding a typed report.
 %% Any read/shape failure is an ordinary cache miss.
+load(<<>>,_,_) -> {error,nil};
 load(Directory,Identity,Key) ->
     try
         {ok,Bytes}=file:read_file(path(Directory,Identity)),
@@ -32,6 +33,7 @@ load(Directory,Identity,Key) ->
     catch _:_ -> {error,nil} end.
 %% Write a compressed, hashed cache payload through the atomic writer. Failure to cache
 %% must not make a successfully checked program fail.
+save(<<>>,_,_,_) -> nil;
 save(Directory,Identity,Key,Value) ->
     try
         Path=path(Directory,Identity),ok=filelib:ensure_dir(Path),
