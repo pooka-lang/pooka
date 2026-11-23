@@ -2,9 +2,11 @@
 
 ## Unreleased
 
+## 0.4.0 - 2026-11-23
+
 ### Added
 
-- Add a preview of `pooka lsp` with offline live diagnostics and document formatting.
+- Add `pooka lsp` with live offline diagnostics, formatting, document outlines, and go-to-definition for local names, imports, constructors, and typed members (#77).
 
 ### Fixed
 
