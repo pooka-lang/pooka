@@ -409,7 +409,11 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         (local_package / "src").mkdir(parents=True)
         (local_package / "pooka.toml").write_text('name = "local_package"\nversion = "1.0.0"\n')
         external = local_package / "src/catalogue.pooka"
-        external.write_text("module catalogue\nclass Entry { new() { Nil } }\ncount() { 1 }\n")
+        external_source = (
+            "module catalogue\nclass Entry { new() { Nil } }\ncount() { 1 }\n"
+            "class Shelf { read() -> Int { 1 } }\n"
+        )
+        external.write_text(external_source)
         with (root / "pooka.toml").open("a") as manifest:
             manifest.write('\n[dependencies]\nlocal_package = { path = "../local package" }\n')
         dependency_main = "get() { #(catalogue.Entry(), catalogue.count()) }"
@@ -432,6 +436,80 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
                     "end": {"line": target_line, "character": end},
                 },
             }, response
+        typed_lines = [
+            "module main",
+            "interface Readable { read() -> Int }",
+            "class Base {",
+            "  let value: Int",
+            "  new(n: Int) { self.value = n }",
+            "  read() -> Int { value }",
+            "}",
+            "class Child is Base {",
+            "  new(n: Int) { super.new(n) }",
+            "}",
+            "actor Counter {",
+            "  be advance() { Nil }",
+            "}",
+            "from_child(item: Child) { #(item.value, item.read()) }",
+            "from_interface(item: Readable) { item.read() }",
+            "from_actor(item: Counter) { item.advance() }",
+            "class Override is Base {",
+            "  new(n: Int) { super.new(n) }",
+            "  read() -> Int { 2 }",
+            "}",
+            "from_override(item: Override) { item.read() }",
+        ]
+        send("textDocument/didChange", {
+            "textDocument": {"uri": uri, "version": 27},
+            "contentChanges": [{"text": "\n".join(typed_lines) + "\n"}],
+        })
+        report = events.get(timeout=15)["params"]
+        assert report["version"] == 27 and report["diagnostics"] == [], report
+        for line, member, target, start, end in [
+            (13, "value", 3, 6, 11),
+            (13, "read", 5, 2, 6),
+            (14, "read", 1, 21, 25),
+            (15, "advance", 11, 5, 12),
+            (20, "read", 18, 2, 6),
+        ]:
+            send("textDocument/definition", {
+                "textDocument": {"uri": uri},
+                "position": {"line": line, "character": typed_lines[line].index("." + member) + 1},
+            }, 30)
+            response = events.get(timeout=10)
+            assert response["id"] == 30 and response["result"] == {
+                "uri": uri,
+                "range": {
+                    "start": {"line": target, "character": start},
+                    "end": {"line": target, "character": end},
+                },
+            }, response
+        external_uri = external.as_uri()
+        send("textDocument/didOpen", {"textDocument": {
+            "uri": external_uri, "version": 1,
+            "text": external_source.replace("class Shelf", "\nclass Shelf"),
+        }})
+        reports = [events.get(timeout=15)["params"] for _ in range(2)]
+        assert all(report["diagnostics"] == [] for report in reports), reports
+        imported_receiver = "from_shelf(item: catalogue.Shelf) { item.read() }"
+        send("textDocument/didChange", {
+            "textDocument": {"uri": uri, "version": 28},
+            "contentChanges": [{"text": f"module main\nimport catalogue\n{imported_receiver}\n"}],
+        })
+        reports = [events.get(timeout=15)["params"] for _ in range(2)]
+        assert all(report["diagnostics"] == [] for report in reports), reports
+        send("textDocument/definition", {
+            "textDocument": {"uri": uri},
+            "position": {"line": 2, "character": imported_receiver.index("read")},
+        }, 31)
+        response = events.get(timeout=10)
+        assert response["id"] == 31 and response["result"] == {
+            "uri": external_uri,
+            "range": {"start": {"line": 4, "character": 14}, "end": {"line": 4, "character": 18}},
+        }, response
+        send("textDocument/didClose", {"textDocument": {"uri": external_uri}})
+        assert events.get(timeout=10)["params"]["uri"] == external_uri
+        assert events.get(timeout=15)["params"]["uri"] == uri
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
         send("shutdown", request=3)

@@ -3509,18 +3509,23 @@ fn object_member(subject: Inferred, name: ast.Name, path: String) -> Inferred {
           let member = case
             list.find(class.fields, fn(field) { field.name.name == name.name })
           {
-            Ok(field) -> Ok(#(field.type_, [], field.owner))
+            Ok(field) -> Ok(#(field.type_, [], field.owner, field.name.span))
             Error(Nil) ->
               list.find(class.methods, fn(method) {
                 method.name.name == name.name
               })
               |> result.map(fn(method) {
-                #(method.type_, method.quantified, method.owner)
+                #(
+                  method.type_,
+                  method.quantified,
+                  method.owner,
+                  method.name.span,
+                )
               })
           }
 
           let declaring = case member {
-            Ok(#(_, _, owner)) -> owner
+            Ok(#(_, _, owner, _)) -> owner
             Error(Nil) -> nominal.identity(class)
           }
           case
@@ -3557,7 +3562,16 @@ fn object_member(subject: Inferred, name: ast.Name, path: String) -> Inferred {
                     "The class declares no field or method with this name."
                 },
               )
-            False, Ok(#(type_, quantified, _)) -> {
+            False, Ok(#(type_, quantified, owner, target)) -> {
+              let state = case unify.class(state, owner) {
+                Ok(declaring) ->
+                  unify.remember_member(
+                    state,
+                    name.span,
+                    location.new(declaring.path, target),
+                  )
+                Error(_) -> state
+              }
               let type_ =
                 nominal.instantiate(unify.apply(type_, state), class, arguments)
               let #(mapping, state) =
@@ -3603,6 +3617,12 @@ fn object_member(subject: Inferred, name: ast.Name, path: String) -> Inferred {
                 scheme.instantiate(
                   scheme.quantified(type_, method.quantified),
                   state,
+                )
+              let state =
+                unify.remember_member(
+                  state,
+                  name.span,
+                  location.new(interface.path, method.name.span),
                 )
               Inferred(type_, state, subject.diagnostics)
             }

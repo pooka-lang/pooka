@@ -3,9 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import builder/check
+import builder/infer
 import compiler/analysis/resolve
 import compiler/compiler
+import compiler/lexer/token
 import compiler/parser/ast
+import compiler/typesystem/unify
 import filepath
 import gleam/dict
 import gleam/list
@@ -29,8 +32,69 @@ pub fn target(
       Ok(#(path, span.start.byte_offset, span.end.byte_offset))
     Ok(resolve.ImportTarget(reference)) ->
       cross_file_target(file, path, FromReference(reference), overlays)
-    Error(_) -> cross_file_target(file, path, AtImport(offset), overlays)
+    Error(_) ->
+      case find_import(file, AtImport(offset)) {
+        Ok(_) -> cross_file_target(file, path, AtImport(offset), overlays)
+        Error(_) -> typed_member_target(file, path, offset, overlays)
+      }
   }
+}
+
+fn typed_member_target(
+  file: compiler.Checked,
+  path: String,
+  offset: Int,
+  overlays: List(#(String, String)),
+) -> Result(#(String, Int, Int), Nil) {
+  // Only a name after a dot can need inference. Unresolved names elsewhere
+  // should return immediately while the user is typing.
+  let tokens = file.lexed.tokens
+  let is_member =
+    list.zip(tokens, list.drop(tokens, 1))
+    |> list.any(fn(pair) {
+      case pair {
+        #(
+          token.Lexeme(token: token.Dot, ..),
+          token.Lexeme(token: token.Name(_), span:),
+        ) -> contains(span, offset)
+        _ -> False
+      }
+    })
+  use _ <- result.try(case is_member {
+    True -> Ok(Nil)
+    False -> Error(Nil)
+  })
+  use #(_, checked) <- result.try(project_report(path, overlays))
+  use typed <- result.try(
+    infer.definitions_in_memory(checked) |> result.replace_error(Nil),
+  )
+  use module <- result.try(
+    list.find(typed.modules, fn(module) {
+      absolute_path(checked, module.path) == path
+    }),
+  )
+  use target <- result.try(unify.member_definition(
+    module.inferred.state,
+    offset,
+  ))
+  Ok(#(
+    absolute_path(checked, target.path),
+    target.span.start.byte_offset,
+    target.span.end.byte_offset,
+  ))
+}
+
+fn project_report(path: String, overlays: List(#(String, String))) {
+  use root <- result.try(analysis.workspace(path))
+  use loaded <- result.try(project.load(root) |> result.replace_error(Nil))
+  use graph <- result.try(
+    package.resolve_offline(loaded) |> result.replace_error(Nil),
+  )
+  use report <- result.try(
+    check.check_graph_with_overlays(graph, True, dict.from_list(overlays), True)
+    |> result.replace_error(Nil),
+  )
+  Ok(#(graph, report))
 }
 
 type ImportQuery {
@@ -45,15 +109,8 @@ fn cross_file_target(
   overlays: List(#(String, String)),
 ) -> Result(#(String, Int, Int), Nil) {
   use #(original, member) <- result.try(find_import(current, query))
-  use root <- result.try(analysis.workspace(path))
-  use loaded <- result.try(project.load(root) |> result.replace_error(Nil))
-  use graph <- result.try(
-    package.resolve_offline(loaded) |> result.replace_error(Nil),
-  )
-  use report <- result.try(
-    check.check_graph_with_overlays(graph, True, dict.from_list(overlays), True)
-    |> result.replace_error(Nil),
-  )
+  use #(graph, report) <- result.try(project_report(path, overlays))
+  let loaded = graph.root
   use file <- result.try(
     list.find(report.files, fn(file) {
       absolute_path(report, file.path) == path

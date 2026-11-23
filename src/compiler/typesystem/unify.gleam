@@ -58,6 +58,7 @@ pub opaque type State {
     bindings: Dict(Int, Binding),
     primitives: List(PrimitiveRequirement),
     expressions: Dict(#(String, Int, Int), Type),
+    member_links: Option(List(#(Span, Location))),
     classes: Dict(nominal.Identity, nominal.Class),
     interfaces: Dict(nominal.Identity, nominal.Interface),
     enums: Dict(nominal.Identity, nominal.Enum),
@@ -95,6 +96,7 @@ pub fn new() -> State {
     dict.new(),
     [],
     dict.new(),
+    None,
     dict.new(),
     dict.new(),
     dict.new(),
@@ -853,6 +855,37 @@ pub fn expression_type(
     span.end.byte_offset,
   ))
   |> result.map(apply(_, state))
+}
+
+/// Keep source links in editor inference only. Cached builds need no member index.
+pub fn track_members(state: State) -> State {
+  State(..state, member_links: option.Some([]))
+}
+
+pub fn remember_member(
+  state: State,
+  reference: Span,
+  target: Location,
+) -> State {
+  case state.member_links {
+    None -> state
+    option.Some(links) ->
+      State(..state, member_links: option.Some([#(reference, target), ..links]))
+  }
+}
+
+pub fn member_definition(state: State, offset: Int) -> Result(Location, Nil) {
+  case state.member_links {
+    None -> Error(Nil)
+    option.Some(links) ->
+      list.find_map(links, fn(link) {
+        let #(span, target) = link
+        case span.start.byte_offset <= offset && offset < span.end.byte_offset {
+          True -> Ok(target)
+          False -> Error(Nil)
+        }
+      })
+  }
 }
 
 /// Publish a nominal class descriptor in the current registry. Registration and

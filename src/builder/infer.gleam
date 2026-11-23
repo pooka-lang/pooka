@@ -76,6 +76,7 @@ pub fn preview_report(checked: check.Report) -> Result(Report, PreviewError) {
     checked,
     filepath.join(checked.project.root, "build/analysis"),
     False,
+    False,
   )
 }
 
@@ -86,13 +87,20 @@ pub fn preview_in_memory(
   // Editor reports retain lints from intact buffers even when a neighbour
   // is still being typed and has structural errors.
   let files = list.map(checked.files, compiler.with_lints)
-  preview_with_cache(check.Report(..checked, files:), "", True)
+  preview_with_cache(check.Report(..checked, files:), "", True, False)
+}
+
+pub fn definitions_in_memory(
+  checked: check.Report,
+) -> Result(Report, PreviewError) {
+  preview_with_cache(checked, "", True, True)
 }
 
 fn preview_with_cache(
   checked: check.Report,
   cache: String,
   editor: Bool,
+  track_members: Bool,
 ) -> Result(Report, PreviewError) {
   let structural = check.diagnostics(checked)
   use Nil <- result.try(case !editor && diagnostic.has_errors(structural) {
@@ -146,7 +154,7 @@ fn preview_with_cache(
     Progress(dict.new(), [], state, check.diagnostics(checked), cache, [])
   use progress <- result.try(
     list.try_fold(ordered, initial, fn(progress, source) {
-      infer_next(source, Production, progress, editor)
+      infer_next(source, Production, progress, editor, track_members)
     }),
   )
   let tests =
@@ -159,7 +167,7 @@ fn preview_with_cache(
     })
   use progress <- result.try(
     list.try_fold(tests, progress, fn(progress, source) {
-      infer_next(source, TestClient, progress, editor)
+      infer_next(source, TestClient, progress, editor, track_members)
     }),
   )
   Ok(Report(
@@ -175,6 +183,7 @@ fn infer_next(
   role: Role,
   progress: Progress,
   editor: Bool,
+  track_members: Bool,
 ) -> Result(Progress, PreviewError) {
   let blocked =
     editor
@@ -187,7 +196,7 @@ fn infer_next(
   case blocked {
     True -> Ok(progress)
     False -> {
-      case infer_source(source, role, progress) {
+      case infer_source(source, role, progress, track_members) {
         Error(UnsupportedSource(path, feature)) if editor ->
           Ok(
             Progress(..progress, diagnostics: [
@@ -205,6 +214,7 @@ fn infer_source(
   source: module.SourceModule,
   role: Role,
   progress: Progress,
+  track_members: Bool,
 ) -> Result(Progress, PreviewError) {
   let dependencies =
     source.syntax.imports
@@ -216,6 +226,10 @@ fn infer_source(
       source.identity,
       list.map(dependencies, fn(dep) { dep.inferred.state }),
     )
+  let state = case track_members {
+    True -> unify.track_members(state)
+    False -> state
+  }
   let key =
     type_cache.key(
       source,
