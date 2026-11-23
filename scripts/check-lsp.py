@@ -196,17 +196,38 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
             report = events.get(timeout=15)["params"]
             assert report["uri"] == uri and report["version"] == 20, report
             assert sum(d["severity"] == 1 for d in report["diagnostics"]) == expected_errors, report
+        send("textDocument/didChange", {
+            "textDocument": {"uri": uri, "version": 21},
+            "contentChanges": [{"text": "module main\nimport dependency as dep\nmain() { dep.value() }\n"}],
+        })
+        report = events.get(timeout=15)["params"]
+        assert report["version"] == 21 and report["diagnostics"] == [], report
+        for column in (7, 21):
+            send("textDocument/definition", {
+                "textDocument": {"uri": uri},
+                "position": {"line": 1, "character": column},
+            }, 22)
+            response = events.get(timeout=10)
+            assert response["id"] == 22 and response["result"] == {
+                "uri": dependency.resolve().as_uri(),
+                "range": {"start": {"line": 0, "character": 7}, "end": {"line": 0, "character": 17}},
+            }, response
+        send("textDocument/definition", {
+            "textDocument": {"uri": uri},
+            "position": {"line": 1, "character": 1000},
+        }, 23)
+        assert events.get(timeout=10)["result"] is None
         lockfile = root / "pooka.lock"
         lockfile.write_text("version = 999\n")
         send("workspace/didChangeWatchedFiles", {"changes": [{"uri": lockfile.as_uri(), "type": 1}]})
         report = events.get(timeout=15)["params"]
-        assert report["uri"] == uri and report["version"] == 20, report
+        assert report["uri"] == uri and report["version"] == 21, report
         assert any(d["severity"] == 1 and "lockfile" in d["message"].lower()
                    for d in report["diagnostics"]), report
         lockfile.unlink()
         send("workspace/didChangeWatchedFiles", {"changes": [{"uri": lockfile.as_uri(), "type": 3}]})
         report = events.get(timeout=15)["params"]
-        assert report["uri"] == uri and report["version"] == 20, report
+        assert report["uri"] == uri and report["version"] == 21, report
         assert report["diagnostics"] == [], report
         assert source.read_text() == original
         send("textDocument/didClose", {"textDocument": {"uri": uri}})

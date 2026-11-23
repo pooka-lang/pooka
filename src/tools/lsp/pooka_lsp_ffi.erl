@@ -99,7 +99,7 @@ headers(Length) ->
 
 dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}=Request, starting, Docs, R, T, {Worker,_}) ->
     reply(Id,#{capabilities => #{positionEncoding => <<"utf-16">>,
-        documentFormattingProvider => true, documentSymbolProvider => true,
+        documentFormattingProvider => true, documentSymbolProvider => true, definitionProvider => true,
         textDocumentSync => #{openClose => true,change => 1,save => true}},
         serverInfo => #{name => <<"Pooka">>}}),
     loop(running,Docs,R,T,{Worker,supports_file_watch(Request)});
@@ -150,6 +150,10 @@ dispatch(#{<<"method">> := <<"textDocument/documentSymbol">>, <<"id">> := Id,
         error -> []
     end,
     reply(Id,Symbols), loop(running,Docs,R,T,Analyzer);
+dispatch(#{<<"method">> := <<"textDocument/definition">>, <<"id">> := Id,
+           <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri},
+                            <<"position">> := Position}}, running, Docs, R, T, Analyzer) ->
+    reply(Id,definition(Uri,Position,Docs)), loop(running,Docs,R,T,Analyzer);
 dispatch(#{<<"method">> := <<"textDocument/formatting">>, <<"id">> := Id,
            <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri}}}, running, Docs, R, T, Analyzer) ->
     Edits = case maps:find(Uri,Docs) of
@@ -294,6 +298,50 @@ file_uri(Path) ->
         <<"/",_/binary>> -> <<"file://",(uri_string:quote(Normal, "/:"))/binary>>;
         _ -> <<"file:///",(uri_string:quote(Normal, "/:"))/binary>>
     end.
+
+definition(Uri,Position,Docs) ->
+    Open = maps:from_list([{Path,{DocUri,Source}} ||
+                           {DocUri,{Path,_,Source}} <- maps:to_list(Docs)]),
+    case maps:find(Uri,Docs) of
+        {ok,{Path,_,Source}} ->
+            case byte_offset(Position,Source) of
+                {ok,Offset} ->
+                    Overlays = [{P,S} || {P,{_,S}} <- maps:to_list(Open)],
+                    case 'tools@lsp@definition':import_target(Path,Source,Offset,Overlays) of
+                        {ok,{Target,Start,End}} ->
+                            case related_source(Target,Open) of
+                                {ok,TargetUri,Text} ->
+                                    #{uri => TargetUri,range => lsp_range(
+                                        #{<<"start">> => #{<<"byte_offset">> => Start},
+                                          <<"end">> => #{<<"byte_offset">> => End}},Text)};
+                                error -> null
+                            end;
+                        {error,_} -> null
+                    end;
+                error -> null
+            end;
+        error -> null
+    end.
+
+byte_offset(#{<<"line">> := Line,<<"character">> := Character},Source)
+  when is_integer(Line), Line >= 0, is_integer(Character), Character >= 0 ->
+    Lines = binary:split(Source,<<"\n">>,[global]),
+    case length(Lines) > Line of
+        false -> error;
+        true ->
+            {Before,[Text|_]} = lists:split(Line,Lines),
+            Utf16 = unicode:characters_to_binary(Text,utf8,{utf16,little}),
+            Bytes = Character * 2,
+            case is_binary(Utf16) andalso byte_size(Utf16) >= Bytes of
+                false -> error;
+                true ->
+                    case unicode:characters_to_binary(binary:part(Utf16,0,Bytes),{utf16,little},utf8) of
+                        Prefix when is_binary(Prefix) -> {ok,iolist_size(Before) + Line + byte_size(Prefix)};
+                        _ -> error
+                    end
+            end
+    end;
+byte_offset(_,_) -> error.
 
 symbol_ranges(Symbol,Source) ->
     Range = maps:get(<<"range">>,Symbol),
