@@ -48,15 +48,15 @@ pub fn every_command_of_the_specification_exists_test() {
   let names = list.map(cli.commands(), fn(info) { info.name })
   [
     "new", "check", "build", "run", "test", "format", "docs", "add", "remove",
-    "deps", "export", "publish", "clean",
+    "deps", "export", "publish", "clean", "lsp",
   ]
   |> list.each(fn(name) {
     assert list.contains(names, name)
   })
 
   assert !list.contains(names, "init")
-  assert !list.contains(names, "lsp")
-  assert cli.parse(["lsp"]) == cli.Unknown("lsp")
+  assert cli.parse(["lsp"]) == cli.Lsp([])
+  assert cli.parse(["lsp", "--help"]) == cli.CommandHelp(["lsp"])
 }
 
 pub fn help_snapshot_test() {
