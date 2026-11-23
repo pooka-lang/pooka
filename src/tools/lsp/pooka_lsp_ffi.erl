@@ -76,7 +76,7 @@ headers(Length) ->
 
 dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}, starting, Docs, R, T) ->
     reply(Id,#{capabilities => #{positionEncoding => <<"utf-16">>,
-        documentFormattingProvider => true,
+        documentFormattingProvider => true, documentSymbolProvider => true,
         textDocumentSync => #{openClose => true,change => 1,save => true}},
         serverInfo => #{name => <<"Pooka">>}}),
     loop(running,Docs,R,T);
@@ -108,6 +108,15 @@ dispatch(#{<<"method">> := <<"textDocument/didSave">>}, running, Docs, R, T) ->
 dispatch(#{<<"method">> := <<"textDocument/didClose">>,
            <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri}}}, running, Docs, R, T) ->
     publish(Uri,null,[]), changed(maps:remove(Uri,Docs),R,T);
+dispatch(#{<<"method">> := <<"textDocument/documentSymbol">>, <<"id">> := Id,
+           <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri}}}, running, Docs, R, T) ->
+    Symbols = case maps:find(Uri,Docs) of
+        {ok,{Path,_,Source}} ->
+            Raw = json:decode('tools@lsp@symbols':outline(Path,Source)),
+            [symbol_ranges(Symbol,Source) || Symbol <- Raw];
+        error -> []
+    end,
+    reply(Id,Symbols), loop(running,Docs,R,T);
 dispatch(#{<<"method">> := <<"textDocument/formatting">>, <<"id">> := Id,
            <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri}}}, running, Docs, R, T) ->
     Edits = case maps:find(Uri,Docs) of
@@ -198,6 +207,17 @@ diagnostic(Value,Location,Source) ->
                               Text <- [maps:get(Key,Value,<<>>)], Text =/= <<>>]),
     #{range => #{start => Start,'end' => End},severity => Severity,
       source => <<"pooka">>,code => maps:get(<<"id">>,Value),message => iolist_to_binary(Message)}.
+
+symbol_ranges(Symbol,Source) ->
+    Range = maps:get(<<"range">>,Symbol),
+    Selection = maps:get(<<"selectionRange">>,Symbol),
+    Children = maps:get(<<"children">>,Symbol),
+    Symbol#{<<"range">> => lsp_range(Range,Source),
+            <<"selectionRange">> => lsp_range(Selection,Source),
+            <<"children">> => [symbol_ranges(Child,Source) || Child <- Children]}.
+
+lsp_range(#{<<"start">> := Start,<<"end">> := End},Source) ->
+    #{start => position(Start,Source),'end' => position(End,Source)}.
 
 position(Location,Source) ->
     Offset = min(byte_size(Source),max(0,maps:get(<<"byte_offset">>,Location,0))),

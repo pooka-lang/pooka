@@ -57,6 +57,10 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         result = events.get(timeout=15)["params"]
         assert result["version"] == 2 and result["diagnostics"] == [], result
         assert source.read_text() == original
+        send("textDocument/documentSymbol", {"textDocument": {"uri": uri}}, 4)
+        symbols = events.get(timeout=10)["result"]
+        assert [symbol["name"] for symbol in symbols] == ["main"], symbols
+        assert symbols[0]["selectionRange"]["start"] == {"line": 1, "character": 0}
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
         send("shutdown", request=3)
