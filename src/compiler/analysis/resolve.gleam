@@ -56,6 +56,8 @@ pub type Resolution {
 type Event {
   Issue(Diagnostic)
   Usage(Use)
+  LocalBinding(ast.Name)
+  LocalRead(Span)
 }
 
 type Scope {
@@ -73,6 +75,8 @@ type Scope {
     exports: Exports,
     path: String,
     locals: Set(String),
+    local_spans: Dict(String, Span),
+    editor_errors: Option(List(Span)),
     fields: Dict(String, ast.Field),
     direct_fields: Set(String),
     owner: Owner,
@@ -111,6 +115,26 @@ pub fn resolve_with_exports(
   module: ast.Module,
   path: String,
   exports: Exports,
+) -> Resolution {
+  resolve_mode(module, path, exports, None)
+}
+
+/// Check local uses in recovered declarations. We keep warnings separate from
+/// name errors here because incomplete editor syntax can omit declarations.
+pub fn editor_local_warnings(
+  module: ast.Module,
+  path: String,
+  bad_spans: List(Span),
+) -> List(Diagnostic) {
+  resolve_mode(module, path, dict.new(), Some(bad_spans)).diagnostics
+  |> list.filter(fn(item) { item.id == "analysis.unused_local_binding" })
+}
+
+fn resolve_mode(
+  module: ast.Module,
+  path: String,
+  exports: Exports,
+  editor_errors: Option(List(Span)),
 ) -> Resolution {
   let core_types = [
     "Int",
@@ -220,6 +244,8 @@ pub fn resolve_with_exports(
       exports:,
       path:,
       locals: set.new(),
+      local_spans: dict.new(),
+      editor_errors:,
       fields: dict.new(),
       direct_fields: set.new(),
       owner: ModuleOwner,
@@ -259,16 +285,54 @@ pub fn resolve_with_exports(
   let events =
     module.declarations |> list.flat_map(declaration(_, scope, classes))
   Resolution(
-    issues(events) |> diagnostic.sort,
+    list.append(issues(events), unused_bindings(events, path))
+      |> diagnostic.sort,
     events
       |> list.filter_map(fn(event) {
         case event {
           Usage(value) -> Ok(value)
-          Issue(_) -> Error(Nil)
+          Issue(_) | LocalBinding(_) | LocalRead(_) -> Error(Nil)
         }
       })
       |> list.unique,
   )
+}
+
+fn unused_bindings(events: List(Event), path: String) -> List(Diagnostic) {
+  let reads =
+    events
+    |> list.filter_map(fn(event) {
+      case event {
+        LocalRead(span) -> Ok(span)
+        _ -> Error(Nil)
+      }
+    })
+    |> set.from_list
+  list.filter_map(events, fn(event) {
+    case event {
+      LocalBinding(name) ->
+        case
+          set.contains(reads, name.span) || string.starts_with(name.name, "_")
+        {
+          True -> Error(Nil)
+          False ->
+            Ok(
+              diagnostic.warning(
+                "analysis.unused_local_binding",
+                "unused local binding",
+              )
+              |> diagnostic.primary(
+                location.new(path, name.span),
+                "`" <> name.name <> "` is never read",
+              )
+              |> diagnostic.conclusion(
+                "Use the binding or prefix its name with an underscore.",
+              ),
+            )
+        }
+      _ -> Error(Nil)
+    }
+  })
 }
 
 type ReferenceForm {
@@ -432,6 +496,10 @@ fn bind(scope: Scope, names: List(String)) -> Scope {
     ..scope,
     values: set.union(scope.values, set.from_list(names)),
     locals: set.union(scope.locals, set.from_list(names)),
+    local_spans: case scope.editor_errors {
+      None -> scope.local_spans
+      Some(_) -> list.fold(names, scope.local_spans, dict.delete)
+    },
     qualifiers: set.difference(scope.qualifiers, set.from_list(names)),
   )
 }
@@ -589,28 +657,34 @@ fn member_bodies(values: List(ast.Member), scope: Scope) -> List(Event) {
 }
 
 fn block(value: ast.Block, scope: Scope) -> List(Event) {
+  let value_span = value.span
   let #(_, diagnostics) =
-    list.fold(value.statements, #(scope, []), fn(acc, value) {
+    list.fold(value.statements, #(scope, []), fn(acc, statement) {
       let #(scope, diagnostics) = acc
-      case value {
+      case statement {
         ast.ExpressionStatement(value) -> #(
           scope,
           list.append(diagnostics, expression(value, scope)),
         )
         ast.LetStatement(pattern:, annotation:, value:, ..) -> {
-          let #(locals, pattern) = resolve_pattern(pattern, scope)
+          let #(locals, resolved_pattern) = resolve_pattern(pattern, scope)
+          let #(locals, bindings) = track_binding(locals, pattern, value_span)
+
           #(
             locals,
             list.flatten([
               diagnostics,
               expression(value, scope),
               optional_annotation(annotation, scope),
-              pattern,
+              resolved_pattern,
+              bindings,
             ]),
           )
         }
         ast.LetAssertStatement(pattern:, annotation:, value:, message:, ..) -> {
-          let #(locals, pattern) = resolve_pattern(pattern, scope)
+          let #(locals, resolved_pattern) = resolve_pattern(pattern, scope)
+          let #(locals, bindings) = track_binding(locals, pattern, value_span)
+
           #(
             locals,
             list.flatten([
@@ -618,13 +692,40 @@ fn block(value: ast.Block, scope: Scope) -> List(Event) {
               expression(value, scope),
               optional_annotation(annotation, scope),
               optional(message, scope),
-              pattern,
+              resolved_pattern,
+              bindings,
             ]),
           )
         }
       }
     })
   diagnostics
+}
+
+fn track_binding(
+  scope: Scope,
+  pattern: ast.Pattern,
+  block: Span,
+) -> #(Scope, List(Event)) {
+  let eligible = case scope.editor_errors {
+    None -> False
+    Some(errors) ->
+      !list.any(errors, fn(error) {
+        error.start.byte_offset >= block.start.byte_offset
+        && error.start.byte_offset <= block.end.byte_offset
+      })
+  }
+  case eligible {
+    False -> #(scope, [])
+    True -> {
+      let names = ast.pattern_bindings(pattern)
+      let spans =
+        list.fold(names, scope.local_spans, fn(spans, name) {
+          dict.insert(spans, name.name, name.span)
+        })
+      #(Scope(..scope, local_spans: spans), list.map(names, LocalBinding))
+    }
+  }
 }
 
 fn resolve_pattern(value: ast.Pattern, scope: Scope) -> #(Scope, List(Event)) {
@@ -1162,7 +1263,7 @@ fn issues(events: List(Event)) -> List(Diagnostic) {
   list.filter_map(events, fn(event) {
     case event {
       Issue(value) -> Ok(value)
-      Usage(_) -> Error(Nil)
+      Usage(_) | LocalBinding(_) | LocalRead(_) -> Error(Nil)
     }
   })
 }
@@ -1175,7 +1276,11 @@ fn reference(name: String, namespace: Namespace, scope: Scope) -> List(Event) {
   let local = namespace == ValueName && set.contains(scope.locals, name)
   let member = namespace == ValueName && set.contains(scope.members, name)
   case local, member {
-    True, _ -> []
+    True, _ ->
+      case dict.get(scope.local_spans, name) {
+        Ok(span) -> [LocalRead(span)]
+        Error(Nil) -> []
+      }
 
     False, True -> private_member_use(name, scope)
     False, False ->

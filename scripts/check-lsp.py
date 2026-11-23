@@ -98,6 +98,21 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         result = events.get(timeout=15)["params"]
         assert result["version"] == 6
         assert {d["range"]["start"]["line"] for d in result["diagnostics"] if d["severity"] == 1} >= {1, 2}, result
+        send("textDocument/didChange", {"textDocument": {"uri": uri, "version": 7},
+                                       "contentChanges": [{"text": "module main\n\nimport asdf\n\nmain() {\n  let n = 1\n}\n\nlet s = jjj\n\nlet a = sdsda\n"}]})
+        result = events.get(timeout=15)["params"]
+        assert result["version"] == 7
+        errors = [d for d in result["diagnostics"] if d["severity"] == 1]
+        warnings = [d for d in result["diagnostics"] if d["severity"] == 2]
+        assert {d["range"]["start"]["line"] for d in errors} == {2, 8, 10}, result
+        warning, = warnings
+        assert warning["range"]["start"] == {"line": 5, "character": 6}, result
+        assert warning["data"]["code"] == "analysis.unused_local_binding", result
+        send("textDocument/didChange", {"textDocument": {"uri": uri, "version": 8},
+                                       "contentChanges": [{"text": "module main\nmain() {\n  let n = 1\n  let n = 2\n  echo n\n  Nil\n}\n"}]})
+        result = events.get(timeout=15)["params"]
+        shadowed = [d for d in result["diagnostics"] if d["data"]["code"] == "analysis.unused_local_binding"]
+        assert [d["range"]["start"]["line"] for d in shadowed] == [2], result
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
         send("shutdown", request=3)

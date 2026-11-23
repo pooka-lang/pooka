@@ -288,7 +288,10 @@ fn synchronise_loop(parser: Parser) -> Parser {
   case lexeme.token, lexeme.span.start.column {
     token.EndOfFile, _ -> parser
     _, 1 ->
-      case starts_declaration(lexeme.token, peek(parser)) {
+      case
+        starts_declaration(lexeme.token, peek(parser))
+        || { parser.recover_blocks && lexeme.token == token.Let }
+      {
         True -> parser
         False -> synchronise_loop(skip(parser))
       }
