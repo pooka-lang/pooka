@@ -70,8 +70,8 @@ type DefinitionTarget {
 }
 
 pub type ImportReference {
-  QualifiedImport(alias: String, member: String)
-  SelectiveImport(binding: String)
+  QualifiedImport(alias: String, member: String, constructor: Bool)
+  SelectiveImport(binding: String, constructor: Bool)
 }
 
 pub type EditorTarget {
@@ -118,7 +118,7 @@ fn definition_target(
 }
 
 // Select the explicit constructor when present and the type name for shorthand.
-fn constructor_span(module: ast.Module, name: String) -> Result(Span, Nil) {
+pub fn constructor_span(module: ast.Module, name: String) -> Result(Span, Nil) {
   let candidates =
     list.filter_map(module.declarations, fn(declaration) {
       case declaration {
@@ -993,6 +993,15 @@ fn expression(value: ast.Expression, scope: Scope) -> List(Event) {
             expressions([ast.TypeName(name, span), ..arguments], scope),
           )
       }
+    ast.Call(
+      ast.FieldAccess(ast.Variable(alias, _), name, _) as callee,
+      arguments,
+      _,
+    ) ->
+      list.append(
+        qualified_constructor_use(alias, name.name, name.span, scope),
+        expressions([callee, ..arguments], scope),
+      )
     ast.Call(callee, arguments, _) -> expressions([callee, ..arguments], scope)
     ast.TupleAccess(subject:, ..) -> expression(subject, scope)
     ast.FieldAccess(subject: ast.SuperExpression(_), name:, ..)
@@ -1027,6 +1036,20 @@ fn expression(value: ast.Expression, scope: Scope) -> List(Event) {
           }
         }
       }
+    ast.FieldAccess(
+      subject: ast.FieldAccess(ast.Variable(alias, _), type_name, _) as subject,
+      name:,
+      ..,
+    )
+      if name.name == "new"
+    ->
+      list.append(
+        qualified_constructor_use(alias, type_name.name, name.span, scope),
+        list.append(
+          expression(subject, scope),
+          private_member_use(name.name, scope),
+        ),
+      )
     ast.FieldAccess(subject:, name:, ..) ->
       list.append(
         list.append(
@@ -1353,7 +1376,10 @@ fn qualified(
       }
       case scope.editor_errors, form, own {
         Some(_), NameOnly, [] -> [
-          Definition(span, ImportDefinition(QualifiedImport(module, name))),
+          Definition(
+            span,
+            ImportDefinition(QualifiedImport(module, name, False)),
+          ),
           ..resolved
         ]
         _, _, _ -> list.append(resolved, own)
@@ -1434,16 +1460,30 @@ fn has_errors(events: List(Event)) -> Bool {
 
 // Member lookup walks nearest declarations first, including inherited members.
 fn constructor_use(name: String, span: Span, scope: Scope) -> List(Event) {
-  case scope.editor_errors {
-    Some(_) ->
-      case
-        set.contains(scope.declared, name)
-        && !set.contains(scope.imported, name)
-      {
-        True -> [Definition(span, ConstructorDefinition(name))]
-        False -> []
-      }
-    None -> []
+  case
+    scope.editor_errors,
+    set.contains(scope.imported, name),
+    set.contains(scope.declared, name)
+  {
+    Some(_), True, _ -> [
+      Definition(span, ImportDefinition(SelectiveImport(name, True))),
+    ]
+    Some(_), False, True -> [Definition(span, ConstructorDefinition(name))]
+    _, _, _ -> []
+  }
+}
+
+fn qualified_constructor_use(
+  alias: String,
+  name: String,
+  span: Span,
+  scope: Scope,
+) -> List(Event) {
+  case scope.editor_errors, set.contains(scope.qualifiers, alias) {
+    Some(_), True -> [
+      Definition(span, ImportDefinition(QualifiedImport(alias, name, True))),
+    ]
+    _, _ -> []
   }
 }
 
@@ -1480,7 +1520,7 @@ fn definition_use(
           }
         False, True, _, _, _ -> member_definition(name, span, scope)
         False, False, False, True, _ -> [
-          Definition(span, ImportDefinition(SelectiveImport(name))),
+          Definition(span, ImportDefinition(SelectiveImport(name, False))),
         ]
         False, False, False, False, True -> [
           Definition(span, ModuleDefinition(name)),

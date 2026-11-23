@@ -369,6 +369,42 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
                     "end": {"line": target_line, "character": end},
                 },
             }, response
+        constructors = root / "src/constructors.pooka"
+        constructors.write_text(
+            "module constructors\n"
+            "class Book { new() { Nil } }\n"
+            "actor Worker { new() { Nil } }\n"
+        )
+        calls = [
+            "module main",
+            "import constructors as models",
+            "import constructors.{Book as Volume, Worker as Job}",
+            "build() { #(models.Book(), Volume(), models.Worker.new(), Job.new()) }",
+        ]
+        send("textDocument/didChange", {
+            "textDocument": {"uri": uri, "version": 25},
+            "contentChanges": [{"text": "\n".join(calls) + "\n"}],
+        })
+        report = events.get(timeout=15)["params"]
+        assert report["diagnostics"] == [], report
+        for call, member, target_line, start in [
+            ("models.Book()", "Book", 1, 13),
+            ("Volume()", "Volume", 1, 13),
+            ("models.Worker.new()", "new", 2, 15),
+            ("Job.new()", "new", 2, 15),
+        ]:
+            send("textDocument/definition", {
+                "textDocument": {"uri": uri},
+                "position": {"line": 3, "character": calls[3].index(call) + call.index(member)},
+            }, 28)
+            response = events.get(timeout=10)
+            assert response["id"] == 28 and response["result"] == {
+                "uri": constructors.resolve().as_uri(),
+                "range": {
+                    "start": {"line": target_line, "character": start},
+                    "end": {"line": target_line, "character": start + 3},
+                },
+            }, response
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
         send("shutdown", request=3)

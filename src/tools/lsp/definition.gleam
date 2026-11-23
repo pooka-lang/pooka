@@ -108,19 +108,19 @@ fn find_import(file: compiler.Checked, query: ImportQuery) {
   let candidates =
     list.flat_map(file.parsed.module.imports, fn(imported) {
       case query {
-        FromReference(resolve.QualifiedImport(alias, member)) ->
+        FromReference(resolve.QualifiedImport(alias, member, constructor)) ->
           case module_alias(imported) == Ok(alias) {
-            True -> [#(imported, Some(member))]
+            True -> [#(imported, Some(#(member, constructor)))]
             False -> []
           }
-        FromReference(resolve.SelectiveImport(binding)) ->
+        FromReference(resolve.SelectiveImport(binding, constructor)) ->
           list.filter_map(imported.items, fn(item) {
             let local = case item.alias {
               Some(alias) -> alias.name
               None -> item.name.name
             }
             case local == binding {
-              True -> Ok(#(imported, Some(item.name.name)))
+              True -> Ok(#(imported, Some(#(item.name.name, constructor))))
               False -> Error(Nil)
             }
           })
@@ -136,7 +136,7 @@ fn find_import(file: compiler.Checked, query: ImportQuery) {
             False ->
               list.filter_map(imported.items, fn(item) {
                 case contains(item.span, offset) {
-                  True -> Ok(#(imported, Some(item.name.name)))
+                  True -> Ok(#(imported, Some(#(item.name.name, False))))
                   False -> Error(Nil)
                 }
               })
@@ -159,7 +159,7 @@ fn module_alias(imported: ast.Import) -> Result(String, Nil) {
 
 fn target_span(
   target: compiler.Checked,
-  member: Option(String),
+  member: Option(#(String, Bool)),
 ) -> Result(Span, Nil) {
   case member {
     None ->
@@ -167,7 +167,13 @@ fn target_span(
         Some(header) -> header.name.span
         None -> location.Span(location.start(), location.start())
       })
-    Some(member) -> {
+    Some(#(member, constructor)) -> {
+      let constructor = case constructor && !string.starts_with(member, "_") {
+        True -> resolve.constructor_span(target.parsed.module, member)
+        False -> Error(Nil)
+      }
+      use <- result.lazy_unwrap(constructor |> result.map(Ok))
+
       let names =
         list.filter_map(target.parsed.module.declarations, ast.declaration_name)
       case
