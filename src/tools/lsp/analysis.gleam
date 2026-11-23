@@ -23,7 +23,7 @@ pub fn diagnostics(root: String, sources: List(#(String, String))) -> String {
   let report = {
     use loaded <- result.try(project.load(root))
     use graph <- result.try(package.resolve_offline(loaded))
-    check.check_graph_with_overlays(graph, True, dict.from_list(sources))
+    check.check_graph_with_overlays(graph, True, dict.from_list(sources), True)
   }
   let diagnostics = case report {
     Error(error) -> [project_error.to_diagnostic(error)]

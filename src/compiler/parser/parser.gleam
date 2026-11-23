@@ -33,7 +33,15 @@ pub type Output {
 /// //// overview then module main -> Module.documentation contains overview
 /// ```
 pub fn parse(tokens: List(Lexeme)) -> Output {
-  let parser = state.new(tokens)
+  parse_with_recovery(tokens, False)
+}
+
+/// Keep parsing statements after an error while a buffer is being edited.
+pub fn parse_with_recovery(
+  tokens: List(Lexeme),
+  recover_blocks: Bool,
+) -> Output {
+  let parser = state.with_block_recovery(tokens, recover_blocks)
   let #(documentation, parser) = state.module_documentation(parser)
 
   let parser = case state.current(parser) {

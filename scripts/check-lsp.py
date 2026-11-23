@@ -88,6 +88,16 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         assert any(d["severity"] == 1 for d in by_uri[broken_uri]), by_uri
         send("textDocument/didClose", {"textDocument": {"uri": broken_uri}})
         assert events.get(timeout=10)["params"]["uri"] == broken_uri
+        send("textDocument/didChange", {"textDocument": {"uri": uri, "version": 5},
+                                       "contentChanges": [{"text": "module main\nimport absent\nmain() {\n  import first\n  import second\n  Nil\n}\n"}]})
+        result = events.get(timeout=15)["params"]
+        assert result["version"] == 5
+        assert {d["range"]["start"]["line"] for d in result["diagnostics"] if d["severity"] == 1} >= {1, 3, 4}, result
+        send("textDocument/didChange", {"textDocument": {"uri": uri, "version": 6},
+                                       "contentChanges": [{"text": 'module main\nfirst() -> Int { "wrong" }\nsecond() -> Int { True }\n'}]})
+        result = events.get(timeout=15)["params"]
+        assert result["version"] == 6
+        assert {d["range"]["start"]["line"] for d in result["diagnostics"] if d["severity"] == 1} >= {1, 2}, result
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
         send("shutdown", request=3)

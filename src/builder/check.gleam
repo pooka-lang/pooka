@@ -79,20 +79,21 @@ fn check_with_overlays(
   use root <- result.try(project.find_root(directory))
   use loaded <- result.try(project.load(root))
   use graph <- result.try(package.resolve(loaded, include_tests))
-  check_graph_with_overlays(graph, include_tests, overlays)
+  check_graph_with_overlays(graph, include_tests, overlays, False)
 }
 
 pub fn check_graph(
   graph: package.Graph,
   include_tests: Bool,
 ) -> Result(Report, ProjectError) {
-  check_graph_with_overlays(graph, include_tests, dict.new())
+  check_graph_with_overlays(graph, include_tests, dict.new(), False)
 }
 
 pub fn check_graph_with_overlays(
   graph: package.Graph,
   include_tests: Bool,
   overlays: Dict(String, String),
+  editor: Bool,
 ) -> Result(Report, ProjectError) {
   let loaded = graph.root
   use groups <- result.try(
@@ -141,6 +142,7 @@ pub fn check_graph_with_overlays(
               False -> package.source_path(owner.name, source.path)
             },
             overlays,
+            editor,
           )
         }),
       )
@@ -205,7 +207,9 @@ pub fn check_graph_with_overlays(
       let clients =
         list.map(
           list.filter(group.1, fn(file) {
-            file.lexed.errors == [] && file.parsed.errors == []
+            // Recovered import declarations are usable for editor diagnostics
+            // even if an unrelated statement in the same file failed.
+            editor || { file.lexed.errors == [] && file.parsed.errors == [] }
           }),
           fn(file) {
             module.SourceModule(file.path, file.path, file.parsed.module)
@@ -326,6 +330,7 @@ fn check_file(
   include_tests: Bool,
   source_path: String,
   overlays: Dict(String, String),
+  editor: Bool,
 ) -> Result(Checked, ProjectError) {
   let absolute = filepath.join(project.root, file.path)
   use source <- result.try(
@@ -339,9 +344,10 @@ fn check_file(
       _,
     )),
   )
-  Ok(case include_tests {
-    True -> compiler.check_source(source_path, source)
-    False -> compiler.check_production_source(source_path, source)
+  Ok(case editor, include_tests {
+    True, True -> compiler.check_editor_source(source_path, source)
+    False, True -> compiler.check_source(source_path, source)
+    _, False -> compiler.check_production_source(source_path, source)
   })
 }
 

@@ -51,7 +51,7 @@ pub type Checked {
 /// source with a syntax error -> Checked report carrying that error
 /// ```
 pub fn check_source(path: String, source: String) -> Checked {
-  check_source_mode(path, source, True)
+  check_source_mode(path, source, True, False)
 }
 
 /// Run structural checking while excluding test declarations from the production
@@ -61,16 +61,21 @@ pub fn check_source(path: String, source: String) -> Checked {
 /// production build -> test declarations do not become application functions
 /// ```
 pub fn check_production_source(path: String, source: String) -> Checked {
-  check_source_mode(path, source, False)
+  check_source_mode(path, source, False, False)
+}
+
+pub fn check_editor_source(path: String, source: String) -> Checked {
+  check_source_mode(path, source, True, True)
 }
 
 fn check_source_mode(
   path: String,
   source: String,
   include_tests: Bool,
+  recover_blocks: Bool,
 ) -> Checked {
   let lexed = lexer.lex(source)
-  let parsed = parser.parse(lexed.tokens)
+  let parsed = parser.parse_with_recovery(lexed.tokens, recover_blocks)
   let test_diagnostics = case lexed.errors, parsed.errors {
     [], [] -> test_location.check(parsed.module, path)
     _, _ -> []
