@@ -114,6 +114,7 @@ type Scope {
     declared: Set(String),
     imported: Set(String),
     members: Set(String),
+    member_sites: List(ast.Name),
     declaration: Option(String),
     types: Set(String),
     type_arities: Dict(String, Int),
@@ -304,6 +305,7 @@ fn resolve_events(
       declared: set.from_list(declared),
       imported: set.from_list(imported),
       members: set.new(),
+      member_sites: [],
       declaration: None,
       types: set.from_list(list.flatten([core_types, types, imported])),
       type_arities: dict.merge(core_arities, declared_arities),
@@ -613,12 +615,14 @@ fn declaration(
         list.append(parameters, optional_annotation(value.return_type, scope))
       })
     ast.ClassDeclaration(value) -> {
-      let members = inherited_members(value, classes, set.new())
+      let member_sites = inherited_members(value, classes, set.new())
+      let members = list.map(member_sites, fn(member) { member.name })
       let locals =
         Scope(
           ..scope,
           values: set.union(scope.values, set.from_list(members)),
           members: set.from_list(members),
+          member_sites: member_sites,
           qualifiers: set.difference(scope.qualifiers, set.from_list(members)),
           fields: inherited_fields(value, classes, set.new()),
           direct_fields: field_map(value.members) |> dict.keys |> set.from_list,
@@ -645,39 +649,37 @@ fn declaration(
         member_bodies(value.members, locals),
       ])
     }
-    ast.ActorDeclaration(value) ->
+    ast.ActorDeclaration(value) -> {
+      let member_sites = member_names(value.members)
+      let members =
+        set.from_list(list.map(member_sites, fn(member) { member.name }))
       list.append(
         list.flat_map(value.interfaces, annotation(_, scope)),
         member_bodies(
           value.members,
           Scope(
             ..scope,
-            values: set.union(
-              scope.values,
-              set.from_list(member_names(value.members)),
-            ),
+            values: set.union(scope.values, members),
             fields: field_map(value.members),
             direct_fields: field_map(value.members)
               |> dict.keys
               |> set.from_list,
-            qualifiers: set.difference(
-              scope.qualifiers,
-              set.from_list(member_names(value.members)),
-            ),
-            members: set.from_list(member_names(value.members)),
+            qualifiers: set.difference(scope.qualifiers, members),
+            members: members,
+            member_sites: member_sites,
             owner: ActorOwner,
           ),
         ),
       )
+    }
   }
 }
 
-fn member_names(values: List(ast.Member)) -> List(String) {
+fn member_names(values: List(ast.Member)) -> List(ast.Name) {
   list.filter_map(values, fn(value) {
     case value {
-      ast.FieldMember(value) -> Ok(value.name.name)
-      ast.MethodMember(value) | ast.BehaviourMember(value) ->
-        Ok(value.name.name)
+      ast.FieldMember(value) -> Ok(value.name)
+      ast.MethodMember(value) | ast.BehaviourMember(value) -> Ok(value.name)
       ast.ConstructorMember(_) -> Error(Nil)
     }
   })
@@ -687,7 +689,7 @@ fn inherited_members(
   value: ast.Class,
   classes: Dict(String, ast.Class),
   seen: Set(String),
-) -> List(String) {
+) -> List(ast.Name) {
   case set.contains(seen, value.name.name) {
     True -> []
     False -> {
@@ -701,7 +703,7 @@ fn inherited_members(
                 classes,
                 set.insert(seen, value.name.name),
               )
-              |> list.filter(fn(name) { !string.starts_with(name, "_") })
+              |> list.filter(fn(name) { !string.starts_with(name.name, "_") })
             Error(Nil) -> []
           }
         _ -> []
@@ -951,6 +953,8 @@ fn expression(value: ast.Expression, scope: Scope) -> List(Event) {
               True -> qualified(module, name.name, name.span, scope, NameOnly)
               False -> []
             }
+          ast.SelfExpression(_) ->
+            member_definition(name.name, name.span, scope)
           _ -> []
         },
       )
@@ -1147,7 +1151,7 @@ fn assignment_target(
                 set.contains(scope.direct_fields, name.name),
                 dict.has_key(scope.fields, name.name)
               {
-                True, _ -> []
+                True, _ -> member_definition(name.name, name.span, scope)
                 False, True -> [
                   Issue(assignment_error(
                     scope,
@@ -1342,6 +1346,18 @@ fn has_errors(events: List(Event)) -> Bool {
   diagnostic.has_errors(issues(events))
 }
 
+// Member lookup walks nearest declarations first, including inherited members.
+fn member_definition(name: String, span: Span, scope: Scope) -> List(Event) {
+  case scope.editor_errors {
+    None -> []
+    Some(_) ->
+      case list.find(scope.member_sites, fn(member) { member.name == name }) {
+        Ok(member) -> [Definition(span, LocalDefinition(member.span))]
+        Error(_) -> []
+      }
+  }
+}
+
 fn definition_use(
   name: String,
   span: Span,
@@ -1362,6 +1378,7 @@ fn definition_use(
             Ok(target) -> [Definition(span, LocalDefinition(target))]
             Error(_) -> []
           }
+        False, True, _, _, _ -> member_definition(name, span, scope)
         False, False, False, True, _ -> [
           Definition(span, ImportDefinition(SelectiveImport(name))),
         ]

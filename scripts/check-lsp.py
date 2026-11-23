@@ -317,6 +317,51 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         send("textDocument/didClose", {"textDocument": {"uri": second_uri}})
         assert events.get(timeout=10)["params"]["uri"] == second_uri
         assert events.get(timeout=15)["params"]["uri"] == uri
+        members = [
+            "module main",
+            "class Base {",
+            "  let value: Int",
+            "  new(n: Int) { self.value = n }",
+            "  read() -> Int { value }",
+            "}",
+            "class Child is Base {",
+            "  new(n: Int) { super.new(n) }",
+            "  inherited() -> Int { read() }",
+            "}",
+            "actor Counter {",
+            "  var value = 0",
+            "  be advance() { value += 1 }",
+            "  read() -> Int { value }",
+            "  tick() { advance() }",
+            "  shadow(value: Int) { value }",
+            "}",
+        ]
+        send("textDocument/didChange", {
+            "textDocument": {"uri": uri, "version": 24},
+            "contentChanges": [{"text": "\n".join(members) + "\n"}],
+        })
+        report = events.get(timeout=15)["params"]
+        assert report["diagnostics"] == [], report
+        for line, name, target_line, start, end in [
+            (3, "value", 2, 6, 11),
+            (4, "value", 2, 6, 11),
+            (8, "read", 4, 2, 6),
+            (13, "value", 11, 6, 11),
+            (14, "advance", 12, 5, 12),
+            (15, "value }", 15, 9, 14),
+        ]:
+            send("textDocument/definition", {
+                "textDocument": {"uri": uri},
+                "position": {"line": line, "character": members[line].index(name)},
+            }, 27)
+            response = events.get(timeout=10)
+            assert response["id"] == 27 and response["result"] == {
+                "uri": uri,
+                "range": {
+                    "start": {"line": target_line, "character": start},
+                    "end": {"line": target_line, "character": end},
+                },
+            }, response
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
         send("shutdown", request=3)
