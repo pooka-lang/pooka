@@ -410,9 +410,10 @@ fn unknown(
         && !set.contains(scope.declared, name)
         && !set.contains(scope.imported, name)
         && !set.contains(scope.qualifiers, name)
-      case builtin_echo {
-        True -> [Usage(Use(scope.declaration, BuiltinReference(name, span)))]
-        False ->
+      case builtin_echo, form {
+        True, _ -> [Usage(Use(scope.declaration, BuiltinReference(name, span)))]
+        False, WholeReference -> reference(name, namespace, scope)
+        False, NameOnly ->
           list.append(
             reference(name, namespace, scope),
             definition_use(name, span, namespace, scope),
