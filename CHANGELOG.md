@@ -8,6 +8,8 @@
 
 ### Fixed
 
+- Report additional recoverable compiler errors and warnings together when a development build fails (#78).
+
 - Stage each Pooka package’s `priv/` resources in the development build so `code:priv_dir/1` works in `pooka run` and `pooka test` (#66).
 
 - Resolve Markdown links from the README and guides to their configured HTML pages, including heading fragments (#64).

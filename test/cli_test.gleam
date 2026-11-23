@@ -596,3 +596,23 @@ pub fn selected_run_targets_receive_their_own_help_and_option_names_test() {
   assert cli.parse(["run", "--help"]) == cli.CommandHelp(["run"])
   assert cli.parse(["run", "-m", "--help"]) == cli.CommandHelp(["run"])
 }
+
+pub fn run_reports_recovered_errors_and_warnings_together_test() {
+  use directory <- support.with_directory("cli_recovered_diagnostics")
+  support.write(
+    directory <> "/pooka.toml",
+    "name = \"app\"\nversion = \"0.1.0\"\n",
+  )
+  support.write(
+    directory <> "/src/main.pooka",
+    "module main\n\nimport asdf\n\nmain() {\n  let n = 1\n}\n\nlet s = jjj\n\nlet a = sdsda\n",
+  )
+  let outcome = support.cli_main(["run"], command.plain(directory))
+  assert outcome.status == 1
+  assert outcome.stdout == ""
+  assert string.contains(outcome.stderr, "Found 3 errors")
+  assert string.contains(outcome.stderr, "unknown module")
+  assert string.contains(outcome.stderr, "let s = jjj")
+  assert string.contains(outcome.stderr, "let a = sdsda")
+  assert string.contains(outcome.stderr, "warning: unused local binding")
+}
