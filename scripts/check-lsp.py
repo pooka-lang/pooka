@@ -10,14 +10,26 @@ import threading
 
 binary = str(Path(sys.argv[1]).resolve())
 with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
-    root = Path(directory)
-    (root / "src").mkdir()
+    root = Path(directory) / "workspace"
+    (root / "src").mkdir(parents=True)
     (root / "pooka.toml").write_text('name = "demo"\nversion = "1.0.0"\n')
     source = root / "src/main.pooka"
     original = "module main\n\nmain() { 1 }\n"
     source.write_text(original)
     uri = source.as_uri()
-    server = subprocess.Popen([binary, "lsp"], stdin=subprocess.PIPE,
+    outside = Path(directory) / "outside"
+    outside.mkdir()
+    help_result = subprocess.run([binary, "lsp", "--help"], cwd=outside, capture_output=True, timeout=10)
+    assert help_result.returncode == 0 and b"Usage: pooka lsp" in help_result.stdout
+    unexpected = subprocess.run([binary, "lsp", "--unexpected"], cwd=outside, capture_output=True, timeout=10)
+    assert unexpected.returncode == 2 and unexpected.stdout == b""
+    disconnected = subprocess.run([binary, "lsp"], cwd=outside, input=b"", capture_output=True, timeout=10)
+    assert disconnected.returncode != 0 and disconnected.stdout == b""
+    assert b"disconnected" in disconnected.stderr
+
+    # Deliberately launch outside the source directory and pass a document URI
+    # belonging to an independent project.
+    server = subprocess.Popen([binary, "lsp"], cwd=outside, stdin=subprocess.PIPE,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     events = queue.Queue()
 
@@ -30,19 +42,30 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
 
     threading.Thread(target=read, daemon=True).start()
 
-    def send(method, params=None, request=None):
+    def frame(method, params=None, request=None):
         message = {"jsonrpc": "2.0", "method": method}
         if params is not None:
             message["params"] = params
         if request is not None:
             message["id"] = request
         body = json.dumps(message, ensure_ascii=False).encode()
-        server.stdin.write(f"Content-Length: {len(body)}\r\n\r\n".encode() + body)
+        return f"Content-Length: {len(body)}\r\n\r\n".encode() + body
+
+    def send(method, params=None, request=None):
+        server.stdin.write(frame(method, params, request))
         server.stdin.flush()
 
     try:
-        send("initialize", {}, 1)
+        startup = frame("initialize", {}, 1)
+        for start, end in ((0, 7), (7, 24), (24, len(startup))):
+            server.stdin.write(startup[start:end])
+            server.stdin.flush()
         assert events.get(timeout=10)["result"]["capabilities"]["documentFormattingProvider"]
+        server.stdin.write(frame("unknown/one", request=90) + frame("unknown/two", request=91))
+        server.stdin.flush()
+        for request in (90, 91):
+            unknown = events.get(timeout=10)
+            assert unknown["id"] == request and unknown["error"]["code"] == -32601
         text = 'module main\nmain() { "🦌";\n  1;\n}\n'
         send("textDocument/didOpen", {"textDocument": {"uri": uri, "text": text, "version": 1}})
         result = events.get(timeout=15)["params"]
@@ -113,6 +136,11 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         result = events.get(timeout=15)["params"]
         shadowed = [d for d in result["diagnostics"] if d["data"]["code"] == "analysis.unused_local_binding"]
         assert [d["range"]["start"]["line"] for d in shadowed] == [2], result
+        for version in range(9, 19):
+            send("textDocument/didChange", {"textDocument": {"uri": uri, "version": version},
+                                           "contentChanges": [{"text": original}]})
+        report = events.get(timeout=15)["params"]
+        assert report["version"] == 18 and report["diagnostics"] == [], report
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
         send("shutdown", request=3)

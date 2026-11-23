@@ -9,8 +9,13 @@ serve() ->
     ok = io:setopts(standard_io,[binary,{encoding,latin1}]),
     Server = self(),
     Reader = spawn_link(fun() -> read_messages(Server) end),
-    try loop(starting,#{},0,undefined)
-    after unlink(Reader), exit(Reader,kill) end.
+    Analyzer = spawn(fun() -> analyze_queue(Server) end),
+    try loop(starting,#{},0,undefined,Analyzer)
+    after
+        unlink(Reader),
+        exit(Reader,kill),
+        exit(Analyzer,kill)
+    end.
 
 read_messages(Server) ->
     case headers(undefined) of
@@ -33,25 +38,42 @@ bytes(Length,Parts) ->
         _ -> error
     end.
 
-loop(Stage,Docs,Revision,Timer) ->
+loop(Stage,Docs,Revision,Timer,Analyzer) ->
     receive
         {message,invalid_json} ->
             error_response(null,-32700,<<"Parse error">>),
-            loop(Stage,Docs,Revision,Timer);
-        {message,Message} when is_map(Message) -> dispatch(Message,Stage,Docs,Revision,Timer);
+            loop(Stage,Docs,Revision,Timer,Analyzer);
+        {message,Message} when is_map(Message) -> dispatch(Message,Stage,Docs,Revision,Timer,Analyzer);
         {message,_} ->
             error_response(null,-32600,<<"Invalid request">>),
-            loop(Stage,Docs,Revision,Timer);
+            loop(Stage,Docs,Revision,Timer,Analyzer);
         {analyze,Revision} when Stage =:= running ->
-            Parent = self(),
-            spawn(fun() -> Parent ! {checked,Revision,analyze(Docs)} end),
-            loop(Stage,Docs,Revision,undefined);
+            Analyzer ! {analyze,Revision,Docs},
+            loop(Stage,Docs,Revision,undefined,Analyzer);
         {checked,Revision,Results} when Stage =:= running ->
             lists:foreach(fun({Uri,Version,Diagnostics}) -> publish(Uri,Version,Diagnostics) end,Results),
-            loop(Stage,Docs,Revision,Timer);
+            loop(Stage,Docs,Revision,Timer,Analyzer);
         disconnected -> disconnected();
-        _ -> loop(Stage,Docs,Revision,Timer)
+        _ -> loop(Stage,Docs,Revision,Timer,Analyzer)
     end.
+
+%% At most one check runs at a time. If edits arrive while it is busy,
+%% analyze only the newest queued snapshot when it becomes available.
+analyze_queue(Server) ->
+    receive
+        {analyze,_,_} = Work ->
+            {analyze,Revision,Docs} = newest_analysis(Work),
+            try Server ! {checked,Revision,analyze(Docs)}
+            catch Class:Reason ->
+                io:format(standard_error,"Pooka LSP analysis failed: ~p:~p~n",[Class,Reason])
+            end,
+            analyze_queue(Server)
+    end.
+
+newest_analysis(Work) ->
+    receive
+        {analyze,_,_} = Newer -> newest_analysis(Newer)
+    after 0 -> Work end.
 
 headers(Length) ->
     case io:get_line(standard_io, "") of
@@ -74,51 +96,51 @@ headers(Length) ->
         _ -> error
     end.
 
-dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}, starting, Docs, R, T) ->
+dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}, starting, Docs, R, T, Analyzer) ->
     reply(Id,#{capabilities => #{positionEncoding => <<"utf-16">>,
         documentFormattingProvider => true, documentSymbolProvider => true,
         textDocumentSync => #{openClose => true,change => 1,save => true}},
         serverInfo => #{name => <<"Pooka">>}}),
-    loop(running,Docs,R,T);
-dispatch(#{<<"method">> := <<"shutdown">>, <<"id">> := Id}, running, Docs, R, T) ->
-    reply(Id,null), loop(stopping,Docs,R,T);
-dispatch(#{<<"method">> := <<"exit">>}, stopping, _, _, _) -> 0;
-dispatch(#{<<"method">> := <<"exit">>}, _, _, _, _) -> 1;
+    loop(running,Docs,R,T,Analyzer);
+dispatch(#{<<"method">> := <<"shutdown">>, <<"id">> := Id}, running, Docs, R, T, Analyzer) ->
+    reply(Id,null), loop(stopping,Docs,R,T,Analyzer);
+dispatch(#{<<"method">> := <<"exit">>}, stopping, _, _, _, _) -> 0;
+dispatch(#{<<"method">> := <<"exit">>}, _, _, _, _, _) -> 1;
 dispatch(#{<<"method">> := <<"textDocument/didOpen">>,
            <<"params">> := #{<<"textDocument">> :=
-               #{<<"uri">> := Uri,<<"text">> := Text,<<"version">> := Version}}}, running, Docs, R, T) ->
+               #{<<"uri">> := Uri,<<"text">> := Text,<<"version">> := Version}}}, running, Docs, R, T, Analyzer) ->
     case file_path(Uri) of
-        {ok,Path} -> changed(maps:put(Uri,{Path,Version,Text},Docs),R,T);
-        error -> loop(running,Docs,R,T)
+        {ok,Path} -> changed(maps:put(Uri,{Path,Version,Text},Docs),R,T,Analyzer);
+        error -> loop(running,Docs,R,T,Analyzer)
     end;
 dispatch(#{<<"method">> := <<"textDocument/didChange">>,
            <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri,<<"version">> := Version},
-                             <<"contentChanges">> := Changes}}, running, Docs, R, T) ->
+                             <<"contentChanges">> := Changes}}, running, Docs, R, T, Analyzer) ->
     case {maps:find(Uri,Docs),is_list(Changes)} of
         {{ok,{Path,Old,_}},true} when Version > Old, Changes =/= [] ->
             case lists:last(Changes) of
                 #{<<"text">> := Text} when is_binary(Text) ->
-                    changed(maps:put(Uri,{Path,Version,Text},Docs),R,T);
-                _ -> loop(running,Docs,R,T)
+                    changed(maps:put(Uri,{Path,Version,Text},Docs),R,T,Analyzer);
+                _ -> loop(running,Docs,R,T,Analyzer)
             end;
-        _ -> loop(running,Docs,R,T)
+        _ -> loop(running,Docs,R,T,Analyzer)
     end;
-dispatch(#{<<"method">> := <<"textDocument/didSave">>}, running, Docs, R, T) ->
-    changed(Docs,R,T);
+dispatch(#{<<"method">> := <<"textDocument/didSave">>}, running, Docs, R, T, Analyzer) ->
+    changed(Docs,R,T,Analyzer);
 dispatch(#{<<"method">> := <<"textDocument/didClose">>,
-           <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri}}}, running, Docs, R, T) ->
-    publish(Uri,null,[]), changed(maps:remove(Uri,Docs),R,T);
+           <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri}}}, running, Docs, R, T, Analyzer) ->
+    publish(Uri,null,[]), changed(maps:remove(Uri,Docs),R,T,Analyzer);
 dispatch(#{<<"method">> := <<"textDocument/documentSymbol">>, <<"id">> := Id,
-           <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri}}}, running, Docs, R, T) ->
+           <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri}}}, running, Docs, R, T, Analyzer) ->
     Symbols = case maps:find(Uri,Docs) of
         {ok,{Path,_,Source}} ->
             Raw = json:decode('tools@lsp@symbols':outline(Path,Source)),
             [symbol_ranges(Symbol,Source) || Symbol <- Raw];
         error -> []
     end,
-    reply(Id,Symbols), loop(running,Docs,R,T);
+    reply(Id,Symbols), loop(running,Docs,R,T,Analyzer);
 dispatch(#{<<"method">> := <<"textDocument/formatting">>, <<"id">> := Id,
-           <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri}}}, running, Docs, R, T) ->
+           <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri}}}, running, Docs, R, T, Analyzer) ->
     Edits = case maps:find(Uri,Docs) of
         {ok,{_,_,Source}} ->
             case 'tools@formatter':format(Source) of
@@ -130,17 +152,17 @@ dispatch(#{<<"method">> := <<"textDocument/formatting">>, <<"id">> := Id,
             end;
         error -> []
     end,
-    reply(Id,Edits), loop(running,Docs,R,T);
-dispatch(#{<<"id">> := Id}, starting, Docs, R, T) ->
-    error_response(Id,-32002,<<"Server not initialized">>), loop(starting,Docs,R,T);
-dispatch(#{<<"id">> := Id}, Stage, Docs, R, T) ->
-    error_response(Id,-32601,<<"Method not found">>), loop(Stage,Docs,R,T);
-dispatch(_,Stage,Docs,R,T) -> loop(Stage,Docs,R,T).
+    reply(Id,Edits), loop(running,Docs,R,T,Analyzer);
+dispatch(#{<<"id">> := Id}, starting, Docs, R, T, Analyzer) ->
+    error_response(Id,-32002,<<"Server not initialized">>), loop(starting,Docs,R,T,Analyzer);
+dispatch(#{<<"id">> := Id}, Stage, Docs, R, T, Analyzer) ->
+    error_response(Id,-32601,<<"Method not found">>), loop(Stage,Docs,R,T,Analyzer);
+dispatch(_,Stage,Docs,R,T,Analyzer) -> loop(Stage,Docs,R,T,Analyzer).
 
-changed(Docs,R,Timer) ->
+changed(Docs,R,Timer,Analyzer) ->
     case Timer of undefined -> ok; _ -> erlang:cancel_timer(Timer) end,
     Next = erlang:send_after(180,self(),{analyze,R+1}),
-    loop(running,Docs,R+1,Next).
+    loop(running,Docs,R+1,Next,Analyzer).
 
 publish(Uri,Version,Diagnostics) ->
     Params = #{uri => Uri,diagnostics => Diagnostics},
