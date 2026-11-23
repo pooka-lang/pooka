@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import builder/check
+import compiler/analysis/resolve
 import compiler/compiler
 import filepath
 import gleam/dict
@@ -15,13 +16,26 @@ import project/project
 import tools/lsp/analysis
 import utilities/location.{type Span}
 
-pub fn import_target(
+pub fn target(
   path: String,
   source: String,
   offset: Int,
   overlays: List(#(String, String)),
 ) -> Result(#(String, Int, Int), Nil) {
-  use _ <- result.try(find_import(compiler.check_source(path, source), offset))
+  let file = compiler.check_editor_source(path, source)
+  case resolve.editor_definition(file.parsed.module, path, offset) {
+    Ok(span) -> Ok(#(path, span.start.byte_offset, span.end.byte_offset))
+    Error(_) -> import_target(file, path, offset, overlays)
+  }
+}
+
+fn import_target(
+  current: compiler.Checked,
+  path: String,
+  offset: Int,
+  overlays: List(#(String, String)),
+) -> Result(#(String, Int, Int), Nil) {
+  use _ <- result.try(find_import(current, offset))
   use root <- result.try(analysis.workspace(path))
   use loaded <- result.try(project.load(root) |> result.replace_error(Nil))
   use graph <- result.try(

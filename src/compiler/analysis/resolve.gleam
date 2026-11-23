@@ -16,6 +16,7 @@ import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/set.{type Set}
 import gleam/string
 import utilities/location.{type Span}
@@ -58,6 +59,41 @@ type Event {
   Usage(Use)
   LocalBinding(ast.Name)
   LocalRead(Span)
+  Definition(Span, DefinitionTarget)
+}
+
+type DefinitionTarget {
+  LocalDefinition(Span)
+  ModuleDefinition(String)
+}
+
+/// Resolve a use in recovered editor syntax with the compiler's lexical scopes.
+pub fn editor_definition(
+  module: ast.Module,
+  path: String,
+  offset: Int,
+) -> Result(Span, Nil) {
+  let events = resolve_events(module, path, dict.new(), Some([]))
+  use event <- result.try(
+    list.find(events, fn(event) {
+      case event {
+        Definition(span, _) ->
+          span.start.byte_offset <= offset && offset < span.end.byte_offset
+        _ -> False
+      }
+    }),
+  )
+  case event {
+    Definition(_, LocalDefinition(span)) -> Ok(span)
+    Definition(_, ModuleDefinition(name)) -> {
+      let names = list.filter_map(module.declarations, ast.declaration_name)
+      case list.filter(names, fn(candidate) { candidate.name == name }) {
+        [target] -> Ok(target.span)
+        _ -> Error(Nil)
+      }
+    }
+    _ -> Error(Nil)
+  }
 }
 
 type Scope {
@@ -136,6 +172,27 @@ fn resolve_mode(
   exports: Exports,
   editor_errors: Option(List(Span)),
 ) -> Resolution {
+  let events = resolve_events(module, path, exports, editor_errors)
+  Resolution(
+    list.append(issues(events), unused_bindings(events, path))
+      |> diagnostic.sort,
+    events
+      |> list.filter_map(fn(event) {
+        case event {
+          Usage(value) -> Ok(value)
+          _ -> Error(Nil)
+        }
+      })
+      |> list.unique,
+  )
+}
+
+fn resolve_events(
+  module: ast.Module,
+  path: String,
+  exports: Exports,
+  editor_errors: Option(List(Span)),
+) -> List(Event) {
   let core_types = [
     "Int",
     "Float",
@@ -282,20 +339,7 @@ fn resolve_mode(
       }
     })
     |> dict.from_list
-  let events =
-    module.declarations |> list.flat_map(declaration(_, scope, classes))
-  Resolution(
-    list.append(issues(events), unused_bindings(events, path))
-      |> diagnostic.sort,
-    events
-      |> list.filter_map(fn(event) {
-        case event {
-          Usage(value) -> Ok(value)
-          Issue(_) | LocalBinding(_) | LocalRead(_) -> Error(Nil)
-        }
-      })
-      |> list.unique,
-  )
+  module.declarations |> list.flat_map(declaration(_, scope, classes))
 }
 
 fn unused_bindings(events: List(Event), path: String) -> List(Diagnostic) {
@@ -368,7 +412,11 @@ fn unknown(
         && !set.contains(scope.qualifiers, name)
       case builtin_echo {
         True -> [Usage(Use(scope.declaration, BuiltinReference(name, span)))]
-        False -> reference(name, namespace, scope)
+        False ->
+          list.append(
+            reference(name, namespace, scope),
+            definition_use(name, span, namespace, scope),
+          )
       }
     }
     False -> {
@@ -484,21 +532,34 @@ fn parameters(
   let names =
     list.filter_map(values, fn(value) {
       case value.name {
-        ast.NamedParameter(name) -> Ok(name)
+        ast.NamedParameter(name) -> {
+          let start = value.span.start
+          let end =
+            location.Position(
+              ..start,
+              column: start.column + string.length(name),
+              byte_offset: start.byte_offset + string.byte_size(name),
+            )
+          Ok(ast.Name(name, location.Span(start, end)))
+        }
         ast.DiscardedParameter -> Error(Nil)
       }
     })
   #(bind(scope, names), annotations)
 }
 
-fn bind(scope: Scope, names: List(String)) -> Scope {
+fn bind(scope: Scope, bindings: List(ast.Name)) -> Scope {
+  let names = list.map(bindings, fn(binding) { binding.name })
   Scope(
     ..scope,
     values: set.union(scope.values, set.from_list(names)),
     locals: set.union(scope.locals, set.from_list(names)),
     local_spans: case scope.editor_errors {
       None -> scope.local_spans
-      Some(_) -> list.fold(names, scope.local_spans, dict.delete)
+      Some(_) ->
+        list.fold(bindings, scope.local_spans, fn(spans, binding) {
+          dict.insert(spans, binding.name, binding.span)
+        })
     },
     qualifiers: set.difference(scope.qualifiers, set.from_list(names)),
   )
@@ -717,14 +778,7 @@ fn track_binding(
   }
   case eligible {
     False -> #(scope, [])
-    True -> {
-      let names = ast.pattern_bindings(pattern)
-      let spans =
-        list.fold(names, scope.local_spans, fn(spans, name) {
-          dict.insert(spans, name.name, name.span)
-        })
-      #(Scope(..scope, local_spans: spans), list.map(names, LocalBinding))
-    }
+    True -> #(scope, list.map(ast.pattern_bindings(pattern), LocalBinding))
   }
 }
 
@@ -733,15 +787,12 @@ fn resolve_pattern(value: ast.Pattern, scope: Scope) -> #(Scope, List(Event)) {
     ast.AlternativePattern(values, _) -> {
       let events =
         list.flat_map(values, fn(value) { resolve_pattern(value, scope).1 })
-      #(
-        bind(
-          scope,
-          list.map(ast.pattern_bindings(value), fn(name) { name.name }),
-        ),
-        events,
-      )
+      #(bind(scope, ast.pattern_bindings(value)), events)
     }
-    ast.VariablePattern(name, _) -> #(bind(scope, [name]), [])
+    ast.VariablePattern(name, span) -> #(
+      bind(scope, [ast.Name(name, span)]),
+      [],
+    )
     ast.DiscardPattern(_)
     | ast.IntPattern(..)
     | ast.FloatPattern(..)
@@ -752,7 +803,7 @@ fn resolve_pattern(value: ast.Pattern, scope: Scope) -> #(Scope, List(Event)) {
     ast.ListPattern(elements, tail, _) -> {
       let #(scope, diagnostics) = patterns(elements, scope)
       let scope = case tail {
-        Some(ast.BoundTail(name, _)) -> bind(scope, [name])
+        Some(ast.BoundTail(name, span)) -> bind(scope, [ast.Name(name, span)])
         Some(ast.IgnoredTail(_)) | None -> scope
       }
       #(scope, diagnostics)
@@ -1263,13 +1314,42 @@ fn issues(events: List(Event)) -> List(Diagnostic) {
   list.filter_map(events, fn(event) {
     case event {
       Issue(value) -> Ok(value)
-      Usage(_) | LocalBinding(_) | LocalRead(_) -> Error(Nil)
+      _ -> Error(Nil)
     }
   })
 }
 
 fn has_errors(events: List(Event)) -> Bool {
   diagnostic.has_errors(issues(events))
+}
+
+fn definition_use(
+  name: String,
+  span: Span,
+  namespace: Namespace,
+  scope: Scope,
+) -> List(Event) {
+  case scope.editor_errors, namespace {
+    Some(_), ValueName ->
+      case
+        set.contains(scope.locals, name),
+        set.contains(scope.members, name),
+        set.contains(scope.qualifiers, name),
+        set.contains(scope.imported, name),
+        set.contains(scope.declared, name)
+      {
+        True, _, _, _, _ ->
+          case dict.get(scope.local_spans, name) {
+            Ok(target) -> [Definition(span, LocalDefinition(target))]
+            Error(_) -> []
+          }
+        False, False, False, False, True -> [
+          Definition(span, ModuleDefinition(name)),
+        ]
+        _, _, _, _, _ -> []
+      }
+    _, _ -> []
+  }
 }
 
 fn reference(name: String, namespace: Namespace, scope: Scope) -> List(Event) {

@@ -307,7 +307,7 @@ definition(Uri,Position,Docs) ->
             case byte_offset(Position,Source) of
                 {ok,Offset} ->
                     Overlays = [{P,S} || {P,{_,S}} <- maps:to_list(Open)],
-                    case 'tools@lsp@definition':import_target(Path,Source,Offset,Overlays) of
+                    case 'tools@lsp@definition':target(Path,Source,Offset,Overlays) of
                         {ok,{Target,Start,End}} ->
                             case related_source(Target,Open) of
                                 {ok,TargetUri,Text} ->

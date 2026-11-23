@@ -230,6 +230,38 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         assert report["uri"] == uri and report["version"] == 21, report
         assert report["diagnostics"] == [], report
         assert source.read_text() == original
+        navigation = (
+            "module main\n"
+            "helper() { 1 }\n"
+            "calculate(n: Int) {\n"
+            "  let before = n\n"
+            "  let n = helper()\n"
+            "  before + n\n"
+            "}\n"
+        )
+        send("textDocument/didChange", {
+            "textDocument": {"uri": uri, "version": 22},
+            "contentChanges": [{"text": navigation}],
+        })
+        assert events.get(timeout=15)["params"]["diagnostics"] == []
+        for line, column, target_line, start, end in [
+            (3, 15, 2, 10, 11),
+            (4, 10, 1, 0, 6),
+            (5, 2, 3, 6, 12),
+            (5, 11, 4, 6, 7),
+        ]:
+            send("textDocument/definition", {
+                "textDocument": {"uri": uri},
+                "position": {"line": line, "character": column},
+            }, 24)
+            response = events.get(timeout=10)
+            assert response["id"] == 24 and response["result"] == {
+                "uri": uri,
+                "range": {
+                    "start": {"line": target_line, "character": start},
+                    "end": {"line": target_line, "character": end},
+                },
+            }, response
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
         send("shutdown", request=3)
