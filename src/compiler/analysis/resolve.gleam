@@ -65,6 +65,7 @@ type Event {
 type DefinitionTarget {
   LocalDefinition(Span)
   ModuleDefinition(String)
+  ConstructorDefinition(String)
   ImportDefinition(ImportReference)
 }
 
@@ -85,25 +86,74 @@ pub fn editor_definition(
   offset: Int,
 ) -> Result(EditorTarget, Nil) {
   let events = resolve_events(module, path, dict.new(), Some([]))
-  use event <- result.try(
-    list.find(events, fn(event) {
-      case event {
-        Definition(span, _) ->
-          span.start.byte_offset <= offset && offset < span.end.byte_offset
-        _ -> False
-      }
-    }),
-  )
-  case event {
-    Definition(_, LocalDefinition(span)) -> Ok(LocalTarget(span))
-    Definition(_, ImportDefinition(reference)) -> Ok(ImportTarget(reference))
-    Definition(_, ModuleDefinition(name)) -> {
-      let names = list.filter_map(module.declarations, ast.declaration_name)
-      case list.filter(names, fn(candidate) { candidate.name == name }) {
+  events
+  |> list.find_map(fn(event) {
+    case event {
+      Definition(span, target)
+        if span.start.byte_offset <= offset && offset < span.end.byte_offset
+      -> definition_target(module, target)
+      _ -> Error(Nil)
+    }
+  })
+}
+
+fn definition_target(
+  module: ast.Module,
+  target: DefinitionTarget,
+) -> Result(EditorTarget, Nil) {
+  case target {
+    LocalDefinition(span) -> Ok(LocalTarget(span))
+    ImportDefinition(reference) -> Ok(ImportTarget(reference))
+    ConstructorDefinition(name) ->
+      constructor_span(module, name) |> result.map(LocalTarget)
+    ModuleDefinition(name) ->
+      case
+        list.filter_map(module.declarations, ast.declaration_name)
+        |> list.filter(fn(candidate) { candidate.name == name })
+      {
         [target] -> Ok(LocalTarget(target.span))
         _ -> Error(Nil)
       }
-    }
+  }
+}
+
+// Select the explicit constructor when present and the type name for shorthand.
+fn constructor_span(module: ast.Module, name: String) -> Result(Span, Nil) {
+  let candidates =
+    list.filter_map(module.declarations, fn(declaration) {
+      case declaration {
+        ast.ClassDeclaration(value) if value.name.name == name ->
+          Ok(#(value.name.span, value.members))
+        ast.ActorDeclaration(value) if value.name.name == name ->
+          Ok(#(value.name.span, value.members))
+        _ -> Error(Nil)
+      }
+    })
+  case candidates {
+    [#(type_name, members)] ->
+      case
+        list.filter_map(members, fn(member) {
+          case member {
+            // Shorthand classes synthesize the body and constructor from the
+            // same field span. They have no source `new` keyword.
+            ast.ConstructorMember(value) if value.span != value.body.span ->
+              Ok(value.span.start)
+            _ -> Error(Nil)
+          }
+        })
+      {
+        [] -> Ok(type_name)
+        [start] ->
+          Ok(location.Span(
+            start,
+            location.Position(
+              ..start,
+              column: start.column + 3,
+              byte_offset: start.byte_offset + 3,
+            ),
+          ))
+        _ -> Error(Nil)
+      }
     _ -> Error(Nil)
   }
 }
@@ -115,6 +165,7 @@ type Scope {
     imported: Set(String),
     members: Set(String),
     member_sites: List(ast.Name),
+    local_superclass: Option(String),
     declaration: Option(String),
     types: Set(String),
     type_arities: Dict(String, Int),
@@ -306,6 +357,7 @@ fn resolve_events(
       imported: set.from_list(imported),
       members: set.new(),
       member_sites: [],
+      local_superclass: None,
       declaration: None,
       types: set.from_list(list.flatten([core_types, types, imported])),
       type_arities: dict.merge(core_arities, declared_arities),
@@ -623,6 +675,10 @@ fn declaration(
           values: set.union(scope.values, set.from_list(members)),
           members: set.from_list(members),
           member_sites: member_sites,
+          local_superclass: case value.superclass {
+            Some(ast.NamedType(None, name, _, _)) -> Some(name)
+            _ -> None
+          },
           qualifiers: set.difference(scope.qualifiers, set.from_list(members)),
           fields: inherited_fields(value, classes, set.new()),
           direct_fields: field_map(value.members) |> dict.keys |> set.from_list,
@@ -931,15 +987,45 @@ fn expression(value: ast.Expression, scope: Scope) -> List(Event) {
           Issue(namespace_misuse(name, span, scope, AsConstructor)),
           ..expressions(arguments, scope)
         ]
-        False -> expressions([ast.TypeName(name, span), ..arguments], scope)
+        False ->
+          list.append(
+            constructor_use(name, span, scope),
+            expressions([ast.TypeName(name, span), ..arguments], scope),
+          )
       }
     ast.Call(callee, arguments, _) -> expressions([callee, ..arguments], scope)
     ast.TupleAccess(subject:, ..) -> expression(subject, scope)
-    ast.FieldAccess(subject: ast.TypeName(namespace, _), name:, ..) ->
+    ast.FieldAccess(subject: ast.SuperExpression(_), name:, ..)
+      if name.name == "new"
+    ->
+      case scope.local_superclass {
+        Some(parent) -> constructor_use(parent, name.span, scope)
+        None -> []
+      }
+    ast.FieldAccess(subject: ast.TypeName(namespace, receiver), name:, ..) ->
       case dict.get(scope.externals, namespace) {
         Ok(functions) -> external_member(namespace, functions, name, scope)
-        Error(Nil) ->
-          expression(ast.TypeName(namespace, ast.expression_span(value)), scope)
+        Error(Nil) -> {
+          let resolved =
+            list.append(
+              unknown(
+                namespace,
+                ast.expression_span(value),
+                scope,
+                ValueName,
+                WholeReference,
+              ),
+              definition_use(namespace, receiver, ValueName, scope),
+            )
+          case name.name {
+            "new" ->
+              list.append(
+                constructor_use(namespace, name.span, scope),
+                resolved,
+              )
+            _ -> resolved
+          }
+        }
       }
     ast.FieldAccess(subject:, name:, ..) ->
       list.append(
@@ -1347,6 +1433,20 @@ fn has_errors(events: List(Event)) -> Bool {
 }
 
 // Member lookup walks nearest declarations first, including inherited members.
+fn constructor_use(name: String, span: Span, scope: Scope) -> List(Event) {
+  case scope.editor_errors {
+    Some(_) ->
+      case
+        set.contains(scope.declared, name)
+        && !set.contains(scope.imported, name)
+      {
+        True -> [Definition(span, ConstructorDefinition(name))]
+        False -> []
+      }
+    None -> []
+  }
+}
+
 fn member_definition(name: String, span: Span, scope: Scope) -> List(Event) {
   case scope.editor_errors {
     None -> []

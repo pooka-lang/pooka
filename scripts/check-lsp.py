@@ -329,12 +329,15 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
             "  inherited() -> Int { read() }",
             "}",
             "actor Counter {",
-            "  var value = 0",
+            "  var value: Int",
             "  be advance() { value += 1 }",
             "  read() -> Int { value }",
             "  tick() { advance() }",
             "  shadow(value: Int) { value }",
+            "  new() { self.value = 0 }",
             "}",
+            "class Point(x: Int)",
+            "construct() { #(Base(1), Counter.new(), Point(2)) }",
         ]
         send("textDocument/didChange", {
             "textDocument": {"uri": uri, "version": 24},
@@ -345,10 +348,14 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         for line, name, target_line, start, end in [
             (3, "value", 2, 6, 11),
             (4, "value", 2, 6, 11),
+            (7, "new(n) }", 3, 2, 5),
             (8, "read", 4, 2, 6),
             (13, "value", 11, 6, 11),
             (14, "advance", 12, 5, 12),
             (15, "value }", 15, 9, 14),
+            (19, "Base", 3, 2, 5),
+            (19, "new", 16, 2, 5),
+            (19, "Point", 18, 6, 11),
         ]:
             send("textDocument/definition", {
                 "textDocument": {"uri": uri},
