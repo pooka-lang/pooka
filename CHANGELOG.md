@@ -4,6 +4,7 @@
 
 ### LSP
 
+- Highlight resolved references in the current editor buffer (#106).
 - Run an individual saved test from an editor code lens (#89).
 - Highlight declarations and resolved lexical names with semantic tokens, including in incomplete buffers (#88).
 - Rename local bindings, module functions, and selective import aliases with versioned edits (#86).
