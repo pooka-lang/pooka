@@ -3916,7 +3916,23 @@ fn known_function_call(
           Ok(Inferred(..checked, type_:))
         }
       }
-    _ -> otherwise()
+    monotype.Variable(_) | monotype.ErrorType -> otherwise()
+    type_ ->
+      Ok(Inferred(
+        monotype.ErrorType,
+        report.state,
+        list.flatten([
+          callee.diagnostics,
+          report.diagnostics,
+          [
+            diagnostic.error("type.not_callable", "value is not callable")
+            |> diagnostic.primary(
+              location.new(path, callee_span),
+              "This value has type `" <> monotype.to_string(type_) <> "`.",
+            ),
+          ],
+        ]),
+      ))
   }
 }
 
