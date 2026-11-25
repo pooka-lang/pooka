@@ -16,7 +16,8 @@ serve() ->
         unlink(Reader),
         exit(Reader,kill),
         exit(Analyzer,kill),
-        exit(Navigator,kill)
+        exit(Navigator,kill),
+        case erase(lsp_test_worker) of Pid when is_pid(Pid) -> exit(Pid,kill); _ -> ok end
     end.
 
 read_messages(Server) ->
@@ -69,6 +70,12 @@ loop(Stage,Docs,Revision,Timer,Analyzer) ->
             loop(Stage,Docs,Revision,Timer,Analyzer);
         {definition_result,_,Id,_} when Stage =:= running ->
             error_response(Id,-32801,<<"Document changed during definition lookup">>),
+            loop(Stage,Docs,Revision,Timer,Analyzer);
+        {test_result,Worker,Id,Result} when Stage =:= running ->
+            case erase(lsp_test_worker) of
+                Worker -> finish_test(Id,Result);
+                _ -> ok
+            end,
             loop(Stage,Docs,Revision,Timer,Analyzer);
         disconnected -> disconnected();
         _ -> loop(Stage,Docs,Revision,Timer,Analyzer)
@@ -168,6 +175,8 @@ dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}=Request, starting, 
         semanticTokensProvider => #{full => true,
             legend => #{tokenTypes => 'tools@lsp@semantic':legend(),
                         tokenModifiers => [<<"declaration">>,<<"readonly">>]}},
+        codeLensProvider => #{resolveProvider => false},
+        executeCommandProvider => #{commands => [<<"pooka.runTest">>]},
         workspaceSymbolProvider => true, referencesProvider => true,
         renameProvider => case get(lsp_versioned_edits) of
             true -> #{prepareProvider => true};
@@ -227,6 +236,20 @@ dispatch(#{<<"method">> := <<"textDocument/semanticTokens/full">>, <<"id">> := I
         error -> []
     end,
     reply(Id,#{data => Data}),
+    loop(running,Docs,R,T,Analyzer);
+dispatch(#{<<"method">> := <<"textDocument/codeLens">>, <<"id">> := Id,
+           <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri}}}, running, Docs, R, T, Analyzer) ->
+    Lenses = case maps:find(Uri,Docs) of
+        {ok,{Path,_,Source}} -> test_lenses(Uri,Path,Source);
+        error -> []
+    end,
+    reply(Id,Lenses),
+    loop(running,Docs,R,T,Analyzer);
+dispatch(#{<<"method">> := <<"workspace/executeCommand">>, <<"id">> := Id,
+           <<"params">> := #{<<"command">> := <<"pooka.runTest">>,
+                            <<"arguments">> := [Uri,Name]}}, running, Docs, R, T, Analyzer)
+  when is_binary(Uri), is_binary(Name) ->
+    start_test(Id,Uri,Name,Docs),
     loop(running,Docs,R,T,Analyzer);
 dispatch(#{<<"method">> := <<"textDocument/documentSymbol">>, <<"id">> := Id,
            <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri}}}, running, Docs, R, T, Analyzer) ->
@@ -291,6 +314,44 @@ dispatch(#{<<"id">> := Id}, starting, Docs, R, T, Analyzer) ->
 dispatch(#{<<"id">> := Id}, Stage, Docs, R, T, Analyzer) ->
     error_response(Id,-32601,<<"Method not found">>), loop(Stage,Docs,R,T,Analyzer);
 dispatch(_,Stage,Docs,R,T,Analyzer) -> loop(Stage,Docs,R,T,Analyzer).
+
+test_lenses(Uri,Path,Source) ->
+    case filename:extension(Path) =:= <<".pooka">> andalso
+         filename:extension(filename:rootname(Path)) =:= <<".spec">> of
+        false -> [];
+        true ->
+            [#{range => offset_range(Start,End,Source),
+               command => #{title => <<"Run test">>,command => <<"pooka.runTest">>,
+                            arguments => [Uri,Name]}}
+             || {Name,Start,End} <- 'tools@lsp@symbols':test_lenses(Path,Source)]
+    end.
+
+start_test(Id,Uri,Name,Docs) ->
+    case {get(lsp_test_worker),maps:find(Uri,Docs)} of
+        {undefined,{ok,{Path,_,Source}}} ->
+            Allowed = [Test || #{command := #{arguments := [_,Test]}} <- test_lenses(Uri,Path,Source)],
+            case {lists:member(Name,Allowed),file:read_file(Path)} of
+                {true,{ok,Source}} ->
+                    Server = self(),
+                    Pid = spawn(fun() ->
+                        Result = try pooka_lsp_test_ffi:run(Path,Name)
+                                 catch _:_ -> {error,<<"Could not start Pooka tests">>} end,
+                        Server ! {test_result,self(),Id,Result}
+                    end),
+                    put(lsp_test_worker,Pid);
+                {true,_} -> error_response(Id,-32602,<<"Save the test file before running it">>);
+                _ -> error_response(Id,-32602,<<"No runnable test with that name in this document">>)
+            end;
+        {undefined,_} -> error_response(Id,-32602,<<"Open the test document first">>);
+        _ -> error_response(Id,-32602,<<"A Pooka test is already running">>)
+    end.
+
+finish_test(Id,{ok,Status,Output}) ->
+    Type = case Status of 0 -> 3; _ -> 1 end,
+    send(#{method => <<"window/logMessage">>,params => #{type => Type,message => Output}}),
+    reply(Id,#{exitCode => Status,output => Output});
+finish_test(Id,{error,Message}) ->
+    error_response(Id,-32603,Message).
 
 semantic_data(Tokens,Source) ->
     {Parts,_} = lists:mapfoldl(fun({Start,End,Kind,Modifiers},Previous) ->

@@ -57,6 +57,25 @@ pub fn workspace(
   |> list.sort(fn(a, b) { string.compare(a.0, b.0) })
 }
 
+pub fn test_lenses(path: String, source: String) -> List(#(String, Int, Int)) {
+  let tests =
+    compiler.check_editor_source(path, source).parsed.module.declarations
+    |> list.filter_map(fn(declaration) {
+      case declaration {
+        ast.TestDeclaration(spec) -> Ok(spec)
+        _ -> Error(Nil)
+      }
+    })
+  tests
+  |> list.filter(fn(spec) {
+    !spec.skipped
+    && list.count(tests, fn(other) { other.name == spec.name }) == 1
+  })
+  |> list.map(fn(spec) {
+    #(spec.name, spec.span.start.byte_offset, spec.span.end.byte_offset)
+  })
+}
+
 fn declaration(value: ast.Declaration) -> json.Json {
   case value {
     ast.FunctionDeclaration(f) -> named(f.name, 12, f.span, [])

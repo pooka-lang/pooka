@@ -13,6 +13,7 @@ Compile and run project tests. Skipped tests are checked but not run.
 Options:
   --verbose  Show timings, captured output and failure stack traces
   --compact  Show failures and totals only
+  --only <file> <name>  Run tests matching an exact project-relative file and name
   -h, --help  Print this help
 
 
