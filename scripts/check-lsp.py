@@ -550,6 +550,36 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         }, 33)
         response = events.get(timeout=10)
         assert response["id"] == 33 and "value: String" in response["result"]["contents"]["value"], response
+        for version, code, line, column, expected, start, end in [
+            (31, "module main\nmain() {\n  let score = 1\n  scWrong\n}\n",
+             3, 4, "score", 2, 9),
+            (32, "module main\nimport catalogue as cat\nmain() { cat. }\n",
+             2, 13, "count", 13, 13),
+            (33, "module main\nimport catalogue\nmain(item: catalogue.Shelf) { item. }\n",
+             2, 35, "read", 35, 35),
+        ]:
+            send("textDocument/didChange", {
+                "textDocument": {"uri": uri, "version": version},
+                "contentChanges": [{"text": code}],
+            })
+            report = events.get(timeout=15)["params"]
+            assert report["version"] == version, report
+            send("textDocument/completion", {
+                "textDocument": {"uri": uri},
+                "position": {"line": line, "character": column},
+            }, 34)
+            response = events.get(timeout=15)
+            assert response["id"] == 34, response
+            assert {
+                "label": expected,
+                "textEdit": {
+                    "newText": expected,
+                    "range": {
+                        "start": {"line": line, "character": start},
+                        "end": {"line": line, "character": end},
+                    },
+                },
+            } in response["result"], response
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
         send("shutdown", request=3)

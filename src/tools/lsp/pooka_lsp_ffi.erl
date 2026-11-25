@@ -143,7 +143,7 @@ headers(Length) ->
 
 dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}=Request, starting, Docs, R, T, {Worker,Navigator,_}) ->
     reply(Id,#{capabilities => #{positionEncoding => <<"utf-16">>,
-        documentFormattingProvider => true, documentSymbolProvider => true, definitionProvider => true, hoverProvider => true,
+        documentFormattingProvider => true, documentSymbolProvider => true, definitionProvider => true, hoverProvider => true, completionProvider => #{triggerCharacters => [<<".">>]},
         textDocumentSync => #{openClose => true,change => 1,save => true}},
         serverInfo => #{name => <<"Pooka">>}}),
     loop(running,Docs,R,T,{Worker,Navigator,supports_file_watch(Request)});
@@ -197,7 +197,8 @@ dispatch(#{<<"method">> := <<"textDocument/documentSymbol">>, <<"id">> := Id,
 dispatch(#{<<"method">> := Method, <<"id">> := Id,
            <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri},
                             <<"position">> := Position}}, running, Docs, R, T, Analyzer)
-  when Method =:= <<"textDocument/definition">>; Method =:= <<"textDocument/hover">> ->
+  when Method =:= <<"textDocument/definition">>; Method =:= <<"textDocument/hover">>;
+       Method =:= <<"textDocument/completion">> ->
     {_,Navigator,_} = Analyzer,
     Navigator ! {Method,R,Id,Uri,Position,Docs},
     loop(running,Docs,R,T,Analyzer);
@@ -360,6 +361,14 @@ navigation(Query,Uri,Position,Docs) ->
         error -> null
     end.
 
+execute_navigation(<<"textDocument/completion">>,Path,Source,Offset,Overlays,_) ->
+    case 'tools@lsp@completion':complete(Path,Source,Offset,Overlays) of
+        {ok,{Start,End,Names}} ->
+            Range = #{start => position(#{<<"byte_offset">> => Start},Source),
+                      'end' => position(#{<<"byte_offset">> => End},Source)},
+            [#{label => Name,textEdit => #{range => Range,newText => Name}} || Name <- Names];
+        {error,_} -> []
+    end;
 execute_navigation(<<"textDocument/hover">>,Path,Source,Offset,Overlays,_) ->
     case 'tools@lsp@definition':hover(Path,Source,Offset,Overlays) of
         {ok,Markdown} -> #{contents => #{kind => <<"markdown">>,value => Markdown}};
