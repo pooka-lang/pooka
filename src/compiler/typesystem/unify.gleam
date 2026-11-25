@@ -888,6 +888,10 @@ pub fn member_definition(state: State, offset: Int) -> Result(Location, Nil) {
   }
 }
 
+pub fn member_definitions(state: State) -> List(#(Span, Location)) {
+  option.unwrap(state.member_links, [])
+}
+
 /// Publish a nominal class descriptor in the current registry. Registration and
 /// prepared field metadata are separate stages.
 ///

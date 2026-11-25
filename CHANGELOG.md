@@ -4,6 +4,7 @@
 
 ### LSP
 
+- Find references across project files using resolved declaration identities (#85).
 - Search project declarations by name from the editor, including unsaved declarations (#87).
 - Show callable signatures and the active parameter while writing calls (#83).
 - Offer versioned editor quick fixes for precise compiler suggestions (#84).

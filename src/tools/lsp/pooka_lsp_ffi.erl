@@ -162,7 +162,7 @@ dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}=Request, starting, 
         documentFormattingProvider => true, documentSymbolProvider => true, definitionProvider => true, hoverProvider => true, completionProvider => #{triggerCharacters => [<<".">>]},
         signatureHelpProvider => #{triggerCharacters => [<<"(">>,<<",">>]},
         codeActionProvider => #{codeActionKinds => [<<"quickfix">>]},
-        workspaceSymbolProvider => true,
+        workspaceSymbolProvider => true, referencesProvider => true,
         textDocumentSync => #{openClose => true,change => 1,save => true}},
         serverInfo => #{name => <<"Pooka">>}}),
     loop(running,Docs,R,T,{Worker,Navigator,supports_file_watch(Request)});
@@ -219,6 +219,14 @@ dispatch(#{<<"method">> := <<"textDocument/documentSymbol">>, <<"id">> := Id,
         error -> []
     end,
     reply(Id,Symbols), loop(running,Docs,R,T,Analyzer);
+dispatch(#{<<"method">> := <<"textDocument/references">>, <<"id">> := Id,
+           <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri},
+                            <<"position">> := Position,<<"context">> := Context}},
+         running, Docs, R, T, Analyzer) ->
+    {_,Navigator,_} = Analyzer,
+    Include = maps:get(<<"includeDeclaration">>,Context,false),
+    Navigator ! {{references,Include},R,Id,Uri,Position,Docs},
+    loop(running,Docs,R,T,Analyzer);
 dispatch(#{<<"method">> := Method, <<"id">> := Id,
            <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri},
                             <<"position">> := Position}}, running, Docs, R, T, Analyzer)
@@ -466,6 +474,9 @@ navigation(Query,Uri,Position,Docs) ->
         error -> null
     end.
 
+execute_navigation({references,Include},Path,_,Offset,Overlays,Open) ->
+    Locations = 'tools@lsp@references':locations(Path,Offset,Overlays,Include =:= true),
+    lists:filtermap(fun({Target,Start,End}) -> navigation_location(Target,Start,End,Open) end,Locations);
 execute_navigation(<<"textDocument/signatureHelp">>,Path,Source,Offset,Overlays,_) ->
     case 'tools@lsp@signature':help(Path,Source,Offset,Overlays) of
         {ok,{Label,Labels,Active}} ->
@@ -489,14 +500,20 @@ execute_navigation(<<"textDocument/hover">>,Path,Source,Offset,Overlays,_) ->
 execute_navigation(<<"textDocument/definition">>,Path,Source,Offset,Overlays,Open) ->
     case 'tools@lsp@definition':target(Path,Source,Offset,Overlays) of
         {ok,{Target,Start,End}} ->
-            case related_source(Target,Open) of
-                {ok,TargetUri,Text} ->
-                    #{uri => TargetUri,range => lsp_range(
-                        #{<<"start">> => #{<<"byte_offset">> => Start},
-                          <<"end">> => #{<<"byte_offset">> => End}},Text)};
-                error -> null
+            case navigation_location(Target,Start,End,Open) of
+                {true,Location} -> Location;
+                false -> null
             end;
         {error,_} -> null
+    end.
+
+navigation_location(Target,Start,End,Open) ->
+    case related_source(Target,Open) of
+        {ok,TargetUri,Text} ->
+            {true,#{uri => TargetUri,range => lsp_range(
+                #{<<"start">> => #{<<"byte_offset">> => Start},
+                  <<"end">> => #{<<"byte_offset">> => End}},Text)}};
+        error -> false
     end.
 
 byte_offset(#{<<"line">> := Line,<<"character">> := Character},Source)

@@ -123,6 +123,25 @@ pub fn editor_definition(
   })
 }
 
+/// Return resolved reads once per source span for editor indexing.
+pub fn editor_references(
+  module: ast.Module,
+  path: String,
+) -> List(#(Span, EditorTarget)) {
+  resolve_events(module, path, dict.new(), Some([]))
+  |> list.filter_map(fn(event) {
+    case event {
+      Definition(span, target) ->
+        definition_target(module, target)
+        |> result.map(fn(site) { #(span, site) })
+      _ -> Error(Nil)
+    }
+  })
+  |> list.reverse
+  |> dict.from_list
+  |> dict.to_list
+}
+
 fn definition_target(
   module: ast.Module,
   target: DefinitionTarget,
