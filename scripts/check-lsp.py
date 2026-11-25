@@ -653,6 +653,43 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         assert {item["containerName"] for item in values} >= {"main", "dependency", "second"}, response
         unsaved, = [item for item in values if item["location"]["uri"] == uri]
         assert unsaved["location"]["range"]["start"] == {"line": 1, "character": 0}, response
+        reference_source = [
+            "module main",
+            "import second as deps",
+            "import second.{value as selected}",
+            "use_value() { #(deps.value(), selected()) }",
+            "shadow(selected: Int) { selected }",
+        ]
+        send("textDocument/didChange", {
+            "textDocument": {"uri": uri, "version": 40},
+            "contentChanges": [{"text": "\n".join(reference_source) + "\n"}],
+        })
+        assert events.get(timeout=15)["params"]["version"] == 40
+        for include in (False, True):
+            send("textDocument/references", {
+                "textDocument": {"uri": uri},
+                "position": {"line": 3, "character": reference_source[3].index("selected")},
+                "context": {"includeDeclaration": include},
+            }, 39)
+            response = events.get(timeout=15)
+            sites = {(item["uri"], item["range"]["start"]["line"],
+                      item["range"]["start"]["character"]) for item in response["result"]}
+            expected = {
+                (uri, 2, reference_source[2].index("value")),
+                (uri, 3, reference_source[3].index("deps.value") + len("deps.")),
+                (uri, 3, reference_source[3].index("selected")),
+            }
+            if include:
+                expected.add((second.resolve().as_uri(), 2, 0))
+            assert response["id"] == 39 and sites == expected, response
+        send("textDocument/references", {
+            "textDocument": {"uri": uri},
+            "position": {"line": 4, "character": reference_source[4].rindex("selected")},
+            "context": {"includeDeclaration": True},
+        }, 40)
+        response = events.get(timeout=15)
+        assert response["id"] == 40 and len(response["result"]) == 2, response
+        assert all(item["range"]["start"]["line"] == 4 for item in response["result"]), response
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
         send("shutdown", request=3)

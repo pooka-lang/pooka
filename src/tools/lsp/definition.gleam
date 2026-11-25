@@ -250,6 +250,22 @@ fn cross_file_target(
   ))
 }
 
+pub fn resolve_import_reference(
+  graph: package.Graph,
+  report: check.Report,
+  current: compiler.Checked,
+  path: String,
+  reference: resolve.ImportReference,
+) -> Result(#(String, Span), Nil) {
+  use #(imported, member) <- result.try(find_import(
+    current,
+    FromReference(reference),
+  ))
+  use file <- result.try(imported_file(graph, report, path, imported.span))
+  use span <- result.try(target_span(file, member))
+  Ok(#(absolute_path(report, file.path), span))
+}
+
 pub fn imported_file(
   graph: package.Graph,
   report: check.Report,
@@ -353,7 +369,7 @@ pub fn module_alias(imported: ast.Import) -> Result(String, Nil) {
   }
 }
 
-fn target_span(
+pub fn target_span(
   target: compiler.Checked,
   member: Option(#(String, Bool)),
 ) -> Result(Span, Nil) {
