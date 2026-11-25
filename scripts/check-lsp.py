@@ -692,6 +692,17 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         response = events.get(timeout=15)
         assert response["id"] == 40 and len(response["result"]) == 2, response
         assert all(item["range"]["start"]["line"] == 4 for item in response["result"]), response
+        send("textDocument/documentHighlight", {
+            "textDocument": {"uri": uri},
+            "position": {"line": 4, "character": reference_source[4].rindex("selected")},
+        }, 48)
+        response = events.get(timeout=15)
+        assert response["id"] == 48, response
+        highlights = response["result"]
+        assert {item["range"]["start"]["character"] for item in highlights} == {
+            reference_source[4].index("selected"), reference_source[4].rindex("selected"),
+        }, response
+        assert all(item["range"]["start"]["line"] == 4 for item in highlights), response
         rename_position = {"line": 3, "character": reference_source[3].index("selected")}
         rename_params = {"textDocument": {"uri": uri}, "position": rename_position}
         send("textDocument/prepareRename", rename_params, 41)

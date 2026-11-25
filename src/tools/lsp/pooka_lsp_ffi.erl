@@ -177,7 +177,7 @@ dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}=Request, starting, 
                         tokenModifiers => [<<"declaration">>,<<"readonly">>]}},
         codeLensProvider => #{resolveProvider => false},
         executeCommandProvider => #{commands => [<<"pooka.runTest">>]},
-        workspaceSymbolProvider => true, referencesProvider => true,
+        workspaceSymbolProvider => true, referencesProvider => true, documentHighlightProvider => true,
         renameProvider => case get(lsp_versioned_edits) of
             true -> #{prepareProvider => true};
             false -> false
@@ -282,7 +282,8 @@ dispatch(#{<<"method">> := <<"textDocument/references">>, <<"id">> := Id,
 dispatch(#{<<"method">> := Method, <<"id">> := Id,
            <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri},
                             <<"position">> := Position}}, running, Docs, R, T, Analyzer)
-  when Method =:= <<"textDocument/definition">>; Method =:= <<"textDocument/hover">>;
+  when Method =:= <<"textDocument/documentHighlight">>;
+       Method =:= <<"textDocument/definition">>; Method =:= <<"textDocument/hover">>;
        Method =:= <<"textDocument/completion">>;
        Method =:= <<"textDocument/signatureHelp">>;
        Method =:= <<"textDocument/prepareRename">> ->
@@ -590,6 +591,10 @@ execute_navigation({rename,Name,Docs},Path,_,Offset,Overlays,Open) ->
                 error -> {request_error,<<"A source file changed before rename completed">>}
             end
     end;
+execute_navigation(<<"textDocument/documentHighlight">>,Path,Source,Offset,Overlays,_) ->
+    [#{range => offset_range(Start,End,Source),kind => 1}
+     || {Target,Start,End} <- 'tools@lsp@references':locations(Path,Offset,Overlays,true),
+        Target =:= Path];
 execute_navigation({references,Include},Path,_,Offset,Overlays,Open) ->
     Locations = 'tools@lsp@references':locations(Path,Offset,Overlays,Include =:= true),
     lists:filtermap(fun({Target,Start,End}) -> navigation_location(Target,Start,End,Open) end,Locations);
