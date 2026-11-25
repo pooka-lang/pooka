@@ -59,9 +59,7 @@ pub fn hover(
     }),
   )
   use #(_, checked) <- result.try(project_report(path, overlays))
-  use typed <- result.try(
-    infer.definitions_in_memory(checked) |> result.replace_error(Nil),
-  )
+  use typed <- result.try(typed_report(checked))
   use module <- result.try(
     list.find(typed.modules, fn(module) {
       absolute_path(checked, module.path) == path
@@ -182,9 +180,7 @@ fn typed_member_target(
     False -> Error(Nil)
   })
   use #(_, checked) <- result.try(project_report(path, overlays))
-  use typed <- result.try(
-    infer.definitions_in_memory(checked) |> result.replace_error(Nil),
-  )
+  use typed <- result.try(typed_report(checked))
   use module <- result.try(
     list.find(typed.modules, fn(module) {
       absolute_path(checked, module.path) == path
@@ -201,17 +197,38 @@ fn typed_member_target(
   ))
 }
 
+// The navigation worker owns this cache and clears it when the editor
+// revision changes. Never retain a failed read or analysis.
+@external(erlang, "pooka_lsp_ffi", "navigation_cache")
+fn navigation_cache(
+  key: #(String, String),
+  compute: fn() -> Result(a, Nil),
+) -> Result(a, Nil)
+
+fn typed_report(checked: check.Report) {
+  navigation_cache(#("typed", checked.project.root), fn() {
+    infer.definitions_in_memory(checked) |> result.replace_error(Nil)
+  })
+}
+
 fn project_report(path: String, overlays: List(#(String, String))) {
   use root <- result.try(analysis.workspace(path))
-  use loaded <- result.try(project.load(root) |> result.replace_error(Nil))
-  use graph <- result.try(
-    package.resolve_offline(loaded) |> result.replace_error(Nil),
-  )
-  use report <- result.try(
-    check.check_graph_with_overlays(graph, True, dict.from_list(overlays), True)
-    |> result.replace_error(Nil),
-  )
-  Ok(#(graph, report))
+  navigation_cache(#("checked", root), fn() {
+    use loaded <- result.try(project.load(root) |> result.replace_error(Nil))
+    use graph <- result.try(
+      package.resolve_offline(loaded) |> result.replace_error(Nil),
+    )
+    use report <- result.try(
+      check.check_graph_with_overlays(
+        graph,
+        True,
+        dict.from_list(overlays),
+        True,
+      )
+      |> result.replace_error(Nil),
+    )
+    Ok(#(graph, report))
+  })
 }
 
 type ImportQuery {
