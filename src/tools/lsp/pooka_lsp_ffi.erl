@@ -83,8 +83,8 @@ analyze_queue(Server) ->
 %% separate from diagnostics so neither can block the protocol message loop.
 definition_queue(Server) ->
     receive
-        {definition,Revision,Id,Uri,Position,Docs} ->
-            Result = try definition(Uri,Position,Docs)
+        {Query,Revision,Id,Uri,Position,Docs} ->
+            Result = try navigation(Query,Uri,Position,Docs)
                 catch Class:Reason ->
                     io:format(standard_error,"Pooka definition lookup failed: ~p:~p~n",[Class,Reason]),
                     null
@@ -121,7 +121,7 @@ headers(Length) ->
 
 dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}=Request, starting, Docs, R, T, {Worker,Navigator,_}) ->
     reply(Id,#{capabilities => #{positionEncoding => <<"utf-16">>,
-        documentFormattingProvider => true, documentSymbolProvider => true, definitionProvider => true,
+        documentFormattingProvider => true, documentSymbolProvider => true, definitionProvider => true, hoverProvider => true,
         textDocumentSync => #{openClose => true,change => 1,save => true}},
         serverInfo => #{name => <<"Pooka">>}}),
     loop(running,Docs,R,T,{Worker,Navigator,supports_file_watch(Request)});
@@ -172,11 +172,12 @@ dispatch(#{<<"method">> := <<"textDocument/documentSymbol">>, <<"id">> := Id,
         error -> []
     end,
     reply(Id,Symbols), loop(running,Docs,R,T,Analyzer);
-dispatch(#{<<"method">> := <<"textDocument/definition">>, <<"id">> := Id,
+dispatch(#{<<"method">> := Method, <<"id">> := Id,
            <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri},
-                            <<"position">> := Position}}, running, Docs, R, T, Analyzer) ->
+                            <<"position">> := Position}}, running, Docs, R, T, Analyzer)
+  when Method =:= <<"textDocument/definition">>; Method =:= <<"textDocument/hover">> ->
     {_,Navigator,_} = Analyzer,
-    Navigator ! {definition,R,Id,Uri,Position,Docs},
+    Navigator ! {Method,R,Id,Uri,Position,Docs},
     loop(running,Docs,R,T,Analyzer);
 dispatch(#{<<"method">> := <<"textDocument/formatting">>, <<"id">> := Id,
            <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri}}}, running, Docs, R, T, Analyzer) ->
@@ -323,7 +324,7 @@ file_uri(Path) ->
         _ -> <<"file:///",(uri_string:quote(Normal, "/:"))/binary>>
     end.
 
-definition(Uri,Position,Docs) ->
+navigation(Query,Uri,Position,Docs) ->
     Open = maps:from_list([{Path,{DocUri,Source}} ||
                            {DocUri,{Path,_,Source}} <- maps:to_list(Docs)]),
     case maps:find(Uri,Docs) of
@@ -331,20 +332,28 @@ definition(Uri,Position,Docs) ->
             case byte_offset(Position,Source) of
                 {ok,Offset} ->
                     Overlays = [{P,S} || {P,{_,S}} <- maps:to_list(Open)],
-                    case 'tools@lsp@definition':target(Path,Source,Offset,Overlays) of
-                        {ok,{Target,Start,End}} ->
-                            case related_source(Target,Open) of
-                                {ok,TargetUri,Text} ->
-                                    #{uri => TargetUri,range => lsp_range(
-                                        #{<<"start">> => #{<<"byte_offset">> => Start},
-                                          <<"end">> => #{<<"byte_offset">> => End}},Text)};
-                                error -> null
-                            end;
-                        {error,_} -> null
-                    end;
+                    execute_navigation(Query,Path,Source,Offset,Overlays,Open);
                 error -> null
             end;
         error -> null
+    end.
+
+execute_navigation(<<"textDocument/hover">>,Path,Source,Offset,Overlays,_) ->
+    case 'tools@lsp@definition':hover(Path,Source,Offset,Overlays) of
+        {ok,Markdown} -> #{contents => #{kind => <<"markdown">>,value => Markdown}};
+        {error,_} -> null
+    end;
+execute_navigation(<<"textDocument/definition">>,Path,Source,Offset,Overlays,Open) ->
+    case 'tools@lsp@definition':target(Path,Source,Offset,Overlays) of
+        {ok,{Target,Start,End}} ->
+            case related_source(Target,Open) of
+                {ok,TargetUri,Text} ->
+                    #{uri => TargetUri,range => lsp_range(
+                        #{<<"start">> => #{<<"byte_offset">> => Start},
+                          <<"end">> => #{<<"byte_offset">> => End}},Text)};
+                error -> null
+            end;
+        {error,_} -> null
     end.
 
 byte_offset(#{<<"line">> := Line,<<"character">> := Character},Source)
