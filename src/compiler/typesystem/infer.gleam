@@ -3352,6 +3352,7 @@ fn field_access(
         False -> Ok(module_member(identity, declarations, name, state, path))
       }
     _ -> {
+      let receiver_span = ast.expression_span(subject)
       use subject <- result.try(expression_type(
         subject,
         environment,
@@ -3361,7 +3362,7 @@ fn field_access(
       ))
       case subject.type_ {
         monotype.ErrorType -> Ok(subject)
-        _ -> Ok(object_member(subject, name, path))
+        _ -> Ok(object_member(subject, receiver_span, name, path))
       }
     }
   }
@@ -3480,7 +3481,12 @@ fn fresh_types(count: Int, state: unify.State) -> #(List(Type), unify.State) {
 /// ```text
 /// Box(Int).value -> Int; a private field needs the correct owner
 /// ```
-fn object_member(subject: Inferred, name: ast.Name, path: String) -> Inferred {
+fn object_member(
+  subject: Inferred,
+  receiver_span: Span,
+  name: ast.Name,
+  path: String,
+) -> Inferred {
   let state = subject.state
   case unify.apply(subject.type_, state) {
     monotype.Nominal(module, class_name, kind, arguments)
@@ -3629,14 +3635,20 @@ fn object_member(subject: Inferred, name: ast.Name, path: String) -> Inferred {
           }
       }
     }
-    _ ->
-      member_error(
-        subject,
-        name,
-        path,
-        "invalid_member_subject",
-        "value has no class members",
-        "Field and method access requires a class instance.",
+    type_ ->
+      Inferred(
+        ..subject,
+        type_: monotype.ErrorType,
+        diagnostics: list.append(subject.diagnostics, [
+          diagnostic.error(
+            "type.invalid_member_subject",
+            "receiver has no members",
+          )
+          |> diagnostic.primary(
+            location.new(path, receiver_span),
+            "This receiver has type `" <> monotype.to_string(type_) <> "`.",
+          ),
+        ]),
       )
   }
 }
