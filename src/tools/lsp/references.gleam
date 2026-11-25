@@ -9,7 +9,7 @@ import compiler/compiler
 import compiler/typesystem/unify
 import gleam/int
 import gleam/list
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import project/package
@@ -23,7 +23,7 @@ pub type Site {
 pub type Occurrence {
   // With selective aliases, a reference still points to the export, but its
   // spelling belongs to the importing file.
-  Occurrence(site: Site, target: Site, alias: Bool)
+  Occurrence(site: Site, target: Site, alias: Option(Site))
 }
 
 pub type Lookup {
@@ -50,7 +50,13 @@ pub fn lookup(
     list.find(uses, fn(use_) { at(use_.site, path, offset) })
     |> result.map(fn(use_) { use_.target })
     |> result.lazy_or(fn() {
-      list.find(uses, fn(use_) { at(use_.target, path, offset) })
+      list.find(uses, fn(use_) {
+        at(use_.target, path, offset)
+        || case use_.alias {
+          Some(alias) -> at(alias, path, offset)
+          None -> False
+        }
+      })
       |> result.map(fn(use_) { use_.target })
     }),
   )
@@ -105,7 +111,7 @@ fn file_references(
       let site = Site(path, span)
       case resolved {
         resolve.LocalTarget(target) ->
-          Ok(Occurrence(site, Site(path, target), False))
+          Ok(Occurrence(site, Site(path, target), None))
         resolve.ImportTarget(reference) ->
           definition.resolve_import_reference(
             graph,
@@ -117,15 +123,17 @@ fn file_references(
           |> result.map(fn(target) {
             let alias = case reference {
               resolve.SelectiveImport(binding, _) ->
-                list.any(file.parsed.module.imports, fn(imported) {
-                  list.any(imported.items, fn(item) {
-                    case item.alias {
-                      Some(alias) -> alias.name == binding
-                      None -> False
-                    }
-                  })
+                file.parsed.module.imports
+                |> list.flat_map(fn(imported) { imported.items })
+                |> list.find_map(fn(item) {
+                  case item.alias {
+                    Some(alias) if alias.name == binding ->
+                      Ok(Site(path, alias.span))
+                    _ -> Error(Nil)
+                  }
                 })
-              _ -> False
+                |> option.from_result
+              _ -> None
             }
             Occurrence(site, Site(target.0, target.1), alias)
           })
@@ -144,7 +152,7 @@ fn file_references(
             Ok(Occurrence(
               Site(path, item.name.span),
               Site(definition.absolute_path(checked, target.path), span),
-              False,
+              None,
             ))
           })
       }
@@ -157,7 +165,7 @@ fn file_references(
       Occurrence(
         Site(path, pair.0),
         Site(definition.absolute_path(checked, pair.1.path), pair.1.span),
-        False,
+        None,
       )
     })
   list.append(lexical, list.append(imports, members))

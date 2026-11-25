@@ -62,7 +62,10 @@ loop(Stage,Docs,Revision,Timer,Analyzer) ->
             end,Results),
             loop(Stage,Docs,Revision,Timer,Analyzer);
         {definition_result,Revision,Id,Result} when Stage =:= running ->
-            reply(Id,Result),
+            case Result of
+                {request_error,Message} -> error_response(Id,-32602,Message);
+                _ -> reply(Id,Result)
+            end,
             loop(Stage,Docs,Revision,Timer,Analyzer);
         {definition_result,_,Id,_} when Stage =:= running ->
             error_response(Id,-32801,<<"Document changed during definition lookup">>),
@@ -163,6 +166,10 @@ dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}=Request, starting, 
         signatureHelpProvider => #{triggerCharacters => [<<"(">>,<<",">>]},
         codeActionProvider => #{codeActionKinds => [<<"quickfix">>]},
         workspaceSymbolProvider => true, referencesProvider => true,
+        renameProvider => case get(lsp_versioned_edits) of
+            true -> #{prepareProvider => true};
+            false -> false
+        end,
         textDocumentSync => #{openClose => true,change => 1,save => true}},
         serverInfo => #{name => <<"Pooka">>}}),
     loop(running,Docs,R,T,{Worker,Navigator,supports_file_watch(Request)});
@@ -219,6 +226,17 @@ dispatch(#{<<"method">> := <<"textDocument/documentSymbol">>, <<"id">> := Id,
         error -> []
     end,
     reply(Id,Symbols), loop(running,Docs,R,T,Analyzer);
+dispatch(#{<<"method">> := <<"textDocument/rename">>, <<"id">> := Id,
+           <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri},
+                            <<"position">> := Position,<<"newName">> := Name}},
+         running, Docs, R, T, Analyzer) when is_binary(Name) ->
+    case get(lsp_versioned_edits) of
+        true ->
+            {_,Navigator,_} = Analyzer,
+            Navigator ! {{rename,Name,Docs},R,Id,Uri,Position,Docs};
+        _ -> error_response(Id,-32602,<<"Rename requires versioned workspace edits">>)
+    end,
+    loop(running,Docs,R,T,Analyzer);
 dispatch(#{<<"method">> := <<"textDocument/references">>, <<"id">> := Id,
            <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri},
                             <<"position">> := Position,<<"context">> := Context}},
@@ -232,7 +250,8 @@ dispatch(#{<<"method">> := Method, <<"id">> := Id,
                             <<"position">> := Position}}, running, Docs, R, T, Analyzer)
   when Method =:= <<"textDocument/definition">>; Method =:= <<"textDocument/hover">>;
        Method =:= <<"textDocument/completion">>;
-       Method =:= <<"textDocument/signatureHelp">> ->
+       Method =:= <<"textDocument/signatureHelp">>;
+       Method =:= <<"textDocument/prepareRename">> ->
     {_,Navigator,_} = Analyzer,
     Navigator ! {Method,R,Id,Uri,Position,Docs},
     loop(running,Docs,R,T,Analyzer);
@@ -474,6 +493,20 @@ navigation(Query,Uri,Position,Docs) ->
         error -> null
     end.
 
+execute_navigation(<<"textDocument/prepareRename">>,Path,Source,Offset,Overlays,_) ->
+    case 'tools@lsp@rename':prepare(Path,Offset,Overlays) of
+        {ok,{Start,End,Name}} -> #{range => offset_range(Start,End,Source),placeholder => Name};
+        {error,_} -> null
+    end;
+execute_navigation({rename,Name,Docs},Path,_,Offset,Overlays,Open) ->
+    case 'tools@lsp@rename':edits(Path,Offset,Name,Overlays) of
+        {error,Message} -> {request_error,Message};
+        {ok,Edits} ->
+            case rename_changes(Edits,Name,Docs,Open) of
+                {ok,Changes} -> #{documentChanges => Changes};
+                error -> {request_error,<<"A source file changed before rename completed">>}
+            end
+    end;
 execute_navigation({references,Include},Path,_,Offset,Overlays,Open) ->
     Locations = 'tools@lsp@references':locations(Path,Offset,Overlays,Include =:= true),
     lists:filtermap(fun({Target,Start,End}) -> navigation_location(Target,Start,End,Open) end,Locations);
@@ -506,6 +539,27 @@ execute_navigation(<<"textDocument/definition">>,Path,Source,Offset,Overlays,Ope
             end;
         {error,_} -> null
     end.
+
+rename_changes(Edits,Name,Docs,Open) ->
+    try
+        ByUri = lists:foldl(fun({Path,Start,End,Text},Acc) ->
+            Uri = case related_source(Path,Open) of
+                {ok,FileUri,Text} -> FileUri;
+                _ -> throw(stale_rename_source)
+            end,
+            Edit = #{range => offset_range(Start,End,Text),newText => Name},
+            maps:update_with(Uri,fun(Items) -> [Edit|Items] end,[Edit],Acc)
+        end,#{},Edits),
+        {ok,[#{textDocument => #{uri => Uri,version => case maps:find(Uri,Docs) of
+                                    {ok,{_,Version,_}} -> Version;
+                                    error -> null
+                                end},edits => Items}
+             || {Uri,Items} <- maps:to_list(ByUri)]}
+    catch throw:stale_rename_source -> error end.
+
+offset_range(Start,End,Source) ->
+    #{start => position(#{<<"byte_offset">> => Start},Source),
+      'end' => position(#{<<"byte_offset">> => End},Source)}.
 
 navigation_location(Target,Start,End,Open) ->
     case related_source(Target,Open) of
