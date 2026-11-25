@@ -54,7 +54,12 @@ loop(Stage,Docs,Revision,Timer,Analyzer) ->
             Worker ! {analyze,Revision,Docs},
             loop(Stage,Docs,Revision,undefined,Analyzer);
         {checked,Revision,Results} when Stage =:= running ->
-            lists:foreach(fun({Uri,Version,Diagnostics}) -> publish(Uri,Version,Diagnostics) end,Results),
+            put(lsp_quick_fixes,{Revision,maps:from_list([
+                {Uri,Fixes} || {Uri,_,_,Fixes} <- Results, Fixes =/= []
+            ])}),
+            lists:foreach(fun({Uri,Version,Diagnostics,_}) ->
+                publish(Uri,Version,Diagnostics)
+            end,Results),
             loop(Stage,Docs,Revision,Timer,Analyzer);
         {definition_result,Revision,Id,Result} when Stage =:= running ->
             reply(Id,Result),
@@ -142,8 +147,10 @@ headers(Length) ->
     end.
 
 dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}=Request, starting, Docs, R, T, {Worker,Navigator,_}) ->
+    put(lsp_versioned_edits,supports_versioned_edits(Request)),
     reply(Id,#{capabilities => #{positionEncoding => <<"utf-16">>,
         documentFormattingProvider => true, documentSymbolProvider => true, definitionProvider => true, hoverProvider => true, completionProvider => #{triggerCharacters => [<<".">>]},
+        codeActionProvider => #{codeActionKinds => [<<"quickfix">>]},
         textDocumentSync => #{openClose => true,change => 1,save => true}},
         serverInfo => #{name => <<"Pooka">>}}),
     loop(running,Docs,R,T,{Worker,Navigator,supports_file_watch(Request)});
@@ -202,6 +209,12 @@ dispatch(#{<<"method">> := Method, <<"id">> := Id,
     {_,Navigator,_} = Analyzer,
     Navigator ! {Method,R,Id,Uri,Position,Docs},
     loop(running,Docs,R,T,Analyzer);
+dispatch(#{<<"method">> := <<"textDocument/codeAction">>, <<"id">> := Id,
+           <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri},
+                            <<"range">> := Range, <<"context">> := Context}},
+         running, Docs, R, T, Analyzer) ->
+    reply(Id,quick_fixes(Uri,Range,Context,R)),
+    loop(running,Docs,R,T,Analyzer);
 dispatch(#{<<"method">> := <<"textDocument/formatting">>, <<"id">> := Id,
            <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri}}}, running, Docs, R, T, Analyzer) ->
     Edits = case maps:find(Uri,Docs) of
@@ -221,6 +234,28 @@ dispatch(#{<<"id">> := Id}, starting, Docs, R, T, Analyzer) ->
 dispatch(#{<<"id">> := Id}, Stage, Docs, R, T, Analyzer) ->
     error_response(Id,-32601,<<"Method not found">>), loop(Stage,Docs,R,T,Analyzer);
 dispatch(_,Stage,Docs,R,T,Analyzer) -> loop(Stage,Docs,R,T,Analyzer).
+
+supports_versioned_edits(#{<<"params">> := #{<<"capabilities">> :=
+                         #{<<"workspace">> := #{<<"workspaceEdit">> :=
+                         #{<<"documentChanges">> := true}}}}}) -> true;
+supports_versioned_edits(_) -> false.
+
+quick_fixes(Uri,Range,Context,Revision) ->
+    Only = maps:get(<<"only">>,Context,[<<"quickfix">>]),
+    case {get(lsp_versioned_edits),get(lsp_quick_fixes),lists:member(<<"quickfix">>,Only)} of
+        {true,{Revision,ByUri},true} ->
+            [Action || {DiagnosticRange,Action} <- maps:get(Uri,ByUri,[]),
+                       intersects(Range,DiagnosticRange)];
+        _ -> []
+    end.
+
+intersects(#{<<"start">> := Start,<<"end">> := End},#{start := From,'end' := To}) ->
+    point(Start) =< point(To) andalso point(End) >= point(From);
+intersects(_,_) -> false.
+
+point(#{<<"line">> := Line,<<"character">> := Column}) -> {Line,Column};
+point(#{line := Line,character := Column}) -> {Line,Column};
+point(_) -> {-1,-1}.
 
 supports_file_watch(Request) ->
     case Request of
@@ -285,9 +320,13 @@ analyze_group({ok,Root},Files) ->
         []
     end,
     Open = maps:from_list([{Path,{Uri,Source}} || {Uri,Path,_,Source} <- Files]),
-    [{Uri,Version,for_document(Path,Root,Source,Open,Diagnostics)}
-     || {Uri,Path,Version,Source} <- Files];
-analyze_group(_,Files) -> [{Uri,Version,[]} || {Uri,_,Version,_} <- Files].
+    [begin
+        Items = for_document(Path,Root,Source,Open,Diagnostics),
+        Actions = lists:append([quick_fix_edits(Value,Item,Path,Root,Uri,Version,Source)
+                                || {Value,Item} <- Items]),
+        {Uri,Version,[Item || {_,Item} <- Items],Actions}
+     end || {Uri,Path,Version,Source} <- Files];
+analyze_group(_,Files) -> [{Uri,Version,[],[]} || {Uri,_,Version,_} <- Files].
 
 for_document(Path,Root,Source,Open,Diagnostics) ->
     lists:filtermap(fun(Diagnostic) ->
@@ -298,11 +337,24 @@ for_document(Path,Root,Source,Open,Diagnostics) ->
             [Location|_] ->
                 Others = [Label || #{<<"location">> := At} = Label <- Labels, At =/= Location],
                 Related = lists:filtermap(fun(Label) -> related(Label,Root,Open) end,Others),
-                {true,diagnostic(Diagnostic,Location,Source,Related)};
-            [] when Labels =:= [] -> {true,diagnostic(Diagnostic,#{},Source,[])};
+                {true,{Diagnostic,diagnostic(Diagnostic,Location,Source,Related)}};
+            [] when Labels =:= [] -> {true,{Diagnostic,diagnostic(Diagnostic,#{},Source,[])}};
             [] -> false
         end
     end,Diagnostics).
+
+quick_fix_edits(Value,Item,Path,Root,Uri,Version,Source) ->
+    [{maps:get(range,Item),
+      #{title => Title,kind => <<"quickfix">>,diagnostics => [Item],
+        edit => #{documentChanges => [
+            #{textDocument => #{uri => Uri,version => Version},
+              edits => [#{range => lsp_range(Location,Source),newText => Replacement}]}
+        ]}}}
+     || #{<<"location">> := #{<<"path">> := File}=Location,
+          <<"description">> := Title,<<"replacement">> := Replacement,
+          <<"applicability">> := Applicability} <- maps:get(<<"fixes">>,Value,[]),
+        Applicability =:= <<"automatic">> orelse Applicability =:= <<"suggested">>,
+        filename:absname(File,Root) =:= Path].
 
 diagnostic(Value,Location,Source,Related) ->
     Start = position(maps:get(<<"start">>,Location,#{}),Source),
