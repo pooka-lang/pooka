@@ -107,7 +107,8 @@ pub fn wrong_argument_types_and_arities_test() {
   let report = expression("{ let f = fn(x) { x }\nf() }")
   assert list.length(report.diagnostics) == 1
   let report = expression("{ let f = 1\nf() }")
-  assert list.length(report.diagnostics) == 1
+  assert list.map(report.diagnostics, fn(value) { value.id })
+    == ["type.not_callable"]
 }
 
 pub fn repeated_function_parameters_are_shared_types_test() {
