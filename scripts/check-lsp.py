@@ -690,6 +690,32 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         response = events.get(timeout=15)
         assert response["id"] == 40 and len(response["result"]) == 2, response
         assert all(item["range"]["start"]["line"] == 4 for item in response["result"]), response
+        rename_position = {"line": 3, "character": reference_source[3].index("selected")}
+        rename_params = {"textDocument": {"uri": uri}, "position": rename_position}
+        send("textDocument/prepareRename", rename_params, 41)
+        response = events.get(timeout=15)
+        assert response["id"] == 41 and response["result"]["placeholder"] == "selected", response
+        send("textDocument/rename", rename_params | {"newName": "chosen"}, 42)
+        response = events.get(timeout=15)
+        change, = response["result"]["documentChanges"]
+        assert response["id"] == 42 and change["textDocument"] == {"uri": uri, "version": 40}, response
+        assert {edit["range"]["start"]["line"] for edit in change["edits"]} == {2, 3}, response
+        assert all(edit["newText"] == "chosen" for edit in change["edits"]), response
+        send("textDocument/rename", rename_params | {"newName": "deps"}, 43)
+        response = events.get(timeout=15)
+        assert response["id"] == 43 and "already occurs" in response["error"]["message"], response
+        export_position = {"line": 3, "character": reference_source[3].index("deps.value") + 5}
+        send("textDocument/rename", rename_params | {
+            "position": export_position,
+            "newName": "replacement",
+        }, 44)
+        response = events.get(timeout=15)
+        assert response["id"] == 44, response
+        changes = {item["textDocument"]["uri"]: item["edits"]
+                   for item in response["result"]["documentChanges"]}
+        assert set(changes) == {uri, second.resolve().as_uri()}, response
+        assert len(changes[uri]) == 2, response
+        assert all(edit["range"]["start"] != rename_position for edit in changes[uri]), response
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
         send("shutdown", request=3)

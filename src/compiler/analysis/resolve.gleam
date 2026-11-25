@@ -142,6 +142,17 @@ pub fn editor_references(
   |> dict.to_list
 }
 
+pub fn editor_binding(module: ast.Module, path: String, span: Span) -> Bool {
+  resolve_events(module, path, dict.new(), Some([]))
+  |> list.any(fn(event) {
+    case event {
+      LocalRead(site) -> site == span
+      LocalBinding(name) -> name.span == span
+      _ -> False
+    }
+  })
+}
+
 fn definition_target(
   module: ast.Module,
   target: DefinitionTarget,
