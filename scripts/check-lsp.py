@@ -737,6 +737,38 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         read_col = len(semantic_line[:semantic_line.rindex("value")].encode("utf-16-le")) // 2
         assert {(1, 0, 4, "function", 1), (1, 5, 5, "parameter", 3),
                 (1, read_col, 5, "parameter", 2)} <= set(decoded), decoded
+        (root / "test").mkdir()
+        spec = root / "test/lens.spec.pooka"
+        spec_source = (
+            'module lens_test\n'
+            'test "chosen test" { assert True }\n'
+            'test "other test" { assert False }\n'
+            'test skip "skip me" { assert True }\n'
+        )
+        spec.write_text(spec_source)
+        spec_uri = spec.as_uri()
+        send("textDocument/didOpen", {
+            "textDocument": {"uri": spec_uri, "text": spec_source, "version": 1},
+        })
+        reports = [events.get(timeout=15)["params"] for _ in range(2)]
+        assert {report["uri"] for report in reports} == {uri, spec_uri}, reports
+        send("textDocument/codeLens", {"textDocument": {"uri": spec_uri}}, 46)
+        response = events.get(timeout=10)
+        assert response["id"] == 46, response
+        commands = [item["command"] for item in response["result"]]
+        assert [command["arguments"][1] for command in commands] == ["chosen test", "other test"], response
+        command = commands[0]
+        send("workspace/executeCommand", {
+            "command": command["command"], "arguments": command["arguments"],
+        }, 47)
+        message = events.get(timeout=35)
+        assert message.get("method") == "window/logMessage", message
+        response = events.get(timeout=10)
+        assert response["id"] == 47 and response["result"]["exitCode"] == 0, response
+        assert "chosen test" in response["result"]["output"] and "other test" not in response["result"]["output"], response
+        send("textDocument/didClose", {"textDocument": {"uri": spec_uri}})
+        assert events.get(timeout=10)["params"]["uri"] == spec_uri
+        assert events.get(timeout=15)["params"]["uri"] == uri
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
         send("shutdown", request=3)

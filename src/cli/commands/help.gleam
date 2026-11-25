@@ -285,7 +285,7 @@ fn details(name: String, rest: List(String)) -> Result(#(String, String), Nil) {
     "test", [] ->
       Ok(#(
         " [--verbose|--compact]",
-        "Compile and run project tests. Skipped tests are checked but not run.\n\n  --verbose  Show timings, captured output and failure stack traces\n  --compact  Show failures and totals only\n\n",
+        "Compile and run project tests. Skipped tests are checked but not run.\n\n  --verbose  Show timings, captured output and failure stack traces\n  --compact  Show failures and totals only\n  --only <file> <name>  Run tests matching an exact project-relative file and name\n\n",
       ))
     "format", [] ->
       Ok(#(

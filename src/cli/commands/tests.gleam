@@ -18,9 +18,10 @@ import cli/commands/new
 import compiler/codegen/beam
 import diagnostics/diagnostic
 import diagnostics/render
+import gleam/bool
 import gleam/int
 import gleam/list
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/string
 import project/project_error
 import tools/logger
@@ -59,9 +60,11 @@ type Run {
 /// ```
 pub fn run(arguments: List(String), environment: Environment) -> Outcome {
   case arguments {
-    [] -> run_tests(Summary, environment)
-    ["--verbose"] -> run_tests(Verbose, environment)
-    ["--compact"] -> run_tests(Compact, environment)
+    [] -> run_tests(Summary, None, environment)
+    ["--verbose"] -> run_tests(Verbose, None, environment)
+    ["--compact"] -> run_tests(Compact, None, environment)
+    ["--only", path, name] ->
+      run_tests(Summary, Some(#(path, name)), environment)
     _ ->
       new.failure(
         project_error.UnexpectedArguments("test", arguments),
@@ -70,7 +73,11 @@ pub fn run(arguments: List(String), environment: Environment) -> Outcome {
   }
 }
 
-fn run_tests(detail: Detail, environment: Environment) -> Outcome {
+fn run_tests(
+  detail: Detail,
+  selection: Option(#(String, String)),
+  environment: Environment,
+) -> Outcome {
   let started = environment.clock()
 
   let vm = beam.start_test_vm(environment.stdout == colour.Ansi)
@@ -80,6 +87,13 @@ fn run_tests(detail: Detail, environment: Environment) -> Outcome {
       build_command.failure(error, environment)
     }
     Ok(report) -> {
+      let tests = case selection {
+        None -> report.tests
+        Some(#(path, name)) ->
+          list.filter(report.tests, fn(test_case) {
+            test_case.path == path && test_case.description == name
+          })
+      }
       let compiled = case detail {
         Verbose -> build_command.compiled(report, started, environment)
         Summary | Compact ->
@@ -91,13 +105,21 @@ fn run_tests(detail: Detail, environment: Environment) -> Outcome {
           )
       }
 
+      use <- bool.lazy_guard(selection != None && tests == [], fn() {
+        beam.stop_test_vm(vm)
+        Outcome(
+          stdout: "",
+          stderr: compiled <> "No test matches that file and name.\n",
+          status: 1,
+        )
+      })
       let runs =
-        report.tests
+        tests
         |> list.filter(fn(test_case) { !test_case.skipped })
         |> list.map(fn(test_case) { #(test_case.module, test_case.function) })
         |> beam.execute_tests(vm, report.directory, _)
       let #(_, results) =
-        list.map_fold(report.tests, runs, fn(runs, test_case) {
+        list.map_fold(tests, runs, fn(runs, test_case) {
           case test_case.skipped, runs {
             False, [run, ..rest] -> #(
               rest,
