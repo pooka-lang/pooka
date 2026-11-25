@@ -4,6 +4,7 @@
 
 ### LSP
 
+- Search project declarations by name from the editor, including unsaved declarations (#87).
 - Show callable signatures and the active parameter while writing calls (#83).
 - Offer versioned editor quick fixes for precise compiler suggestions (#84).
 - Complete names in scope, module exports, and members of typed receivers in unsaved buffers (#81).
