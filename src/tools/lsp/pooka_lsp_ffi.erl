@@ -3,14 +3,14 @@
 %% LSP's lengths count bytes, even when a JSON string contains Unicode.
 %% https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/
 -module(pooka_lsp_ffi).
--export([serve/0]).
+-export([serve/0,navigation_cache/2]).
 
 serve() ->
     ok = io:setopts(standard_io,[binary,{encoding,latin1}]),
     Server = self(),
     Reader = spawn_link(fun() -> read_messages(Server) end),
     Analyzer = spawn(fun() -> analyze_queue(Server) end),
-    Navigator = spawn(fun() -> definition_queue(Server) end),
+    Navigator = spawn(fun() -> definition_queue(Server,undefined) end),
     try loop(starting,#{},0,undefined,{Analyzer,Navigator,false})
     after
         unlink(Reader),
@@ -81,16 +81,38 @@ analyze_queue(Server) ->
 
 %% Typed navigation can run inference for the whole project. Keep one worker
 %% separate from diagnostics so neither can block the protocol message loop.
-definition_queue(Server) ->
+definition_queue(Server,PreviousRevision) ->
     receive
         {Query,Revision,Id,Uri,Position,Docs} ->
+            case Revision =:= PreviousRevision of
+                true -> ok;
+                false -> erase(lsp_navigation_cache)
+            end,
             Result = try navigation(Query,Uri,Position,Docs)
                 catch Class:Reason ->
                     io:format(standard_error,"Pooka definition lookup failed: ~p:~p~n",[Class,Reason]),
                     null
                 end,
             Server ! {definition_result,Revision,Id,Result},
-            definition_queue(Server)
+            definition_queue(Server,Revision)
+    end.
+
+%% One workspace per worker snapshot bounds retained reports even when
+%% several projects are open. The checked and inferred phases share that slot.
+navigation_cache({Phase,Root},Compute) ->
+    Cache = case get(lsp_navigation_cache) of
+        {Root,Entries} -> Entries;
+        _ -> #{}
+    end,
+    case maps:find(Phase,Cache) of
+        {ok,Result} -> Result;
+        error ->
+            case Compute() of
+                {ok,_} = Result ->
+                    put(lsp_navigation_cache,{Root,maps:put(Phase,Result,Cache)}),
+                    Result;
+                Error -> Error
+            end
     end.
 
 newest_analysis(Work) ->

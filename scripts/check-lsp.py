@@ -537,6 +537,19 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
             contents = response["result"]["contents"]
             assert response["id"] == 32 and contents["kind"] == "markdown", response
             assert all(part in contents["value"] for part in expected), response
+        hover_source[2] = 'score() -> String { "changed" }'
+        send("textDocument/didChange", {
+            "textDocument": {"uri": uri, "version": 30},
+            "contentChanges": [{"text": "\n".join(hover_source) + "\n"}],
+        })
+        report = events.get(timeout=15)["params"]
+        assert report["version"] == 30 and report["diagnostics"] == [], report
+        send("textDocument/hover", {
+            "textDocument": {"uri": uri},
+            "position": {"line": 5, "character": hover_source[5].index("value")},
+        }, 33)
+        response = events.get(timeout=10)
+        assert response["id"] == 33 and "value: String" in response["result"]["contents"]["value"], response
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
         send("shutdown", request=3)
