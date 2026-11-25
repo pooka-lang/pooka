@@ -510,6 +510,33 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         send("textDocument/didClose", {"textDocument": {"uri": external_uri}})
         assert events.get(timeout=10)["params"]["uri"] == external_uri
         assert events.get(timeout=15)["params"]["uri"] == uri
+        hover_source = [
+            "module main",
+            "/// Return the default score.",
+            "score() -> Int { 42 }",
+            "main() {",
+            "  let value = score()",
+            "  value",
+            "}",
+        ]
+        send("textDocument/didChange", {
+            "textDocument": {"uri": uri, "version": 29},
+            "contentChanges": [{"text": "\n".join(hover_source) + "\n"}],
+        })
+        report = events.get(timeout=15)["params"]
+        assert report["version"] == 29 and report["diagnostics"] == [], report
+        for row, name, expected in [
+            (4, "score", ["score: fn() -> Int", "Return the default score."]),
+            (5, "value", ["value: Int"]),
+        ]:
+            send("textDocument/hover", {
+                "textDocument": {"uri": uri},
+                "position": {"line": row, "character": hover_source[row].index(name)},
+            }, 32)
+            response = events.get(timeout=10)
+            contents = response["result"]["contents"]
+            assert response["id"] == 32 and contents["kind"] == "markdown", response
+            assert all(part in contents["value"] for part in expected), response
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
         send("shutdown", request=3)

@@ -8,9 +8,11 @@ import compiler/analysis/resolve
 import compiler/compiler
 import compiler/lexer/token
 import compiler/parser/ast
+import compiler/typesystem/monotype
 import compiler/typesystem/unify
 import filepath
 import gleam/dict
+import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
@@ -38,6 +40,121 @@ pub fn target(
         Error(_) -> typed_member_target(file, path, offset, overlays)
       }
   }
+}
+
+/// Read hover information from the same unsaved snapshot used for navigation.
+pub fn hover(
+  path: String,
+  source: String,
+  offset: Int,
+  overlays: List(#(String, String)),
+) -> Result(String, Nil) {
+  let file = compiler.check_editor_source(path, source)
+  use lexeme <- result.try(
+    list.find(file.lexed.tokens, fn(lexeme) {
+      case lexeme.token {
+        token.Name(_) | token.UpperName(_) -> contains(lexeme.span, offset)
+        _ -> False
+      }
+    }),
+  )
+  use #(_, checked) <- result.try(project_report(path, overlays))
+  use typed <- result.try(
+    infer.definitions_in_memory(checked) |> result.replace_error(Nil),
+  )
+  use module <- result.try(
+    list.find(typed.modules, fn(module) {
+      absolute_path(checked, module.path) == path
+    }),
+  )
+  let state = module.inferred.state
+  let start = lexeme.span.start.byte_offset
+  let end = lexeme.span.end.byte_offset
+  let expression =
+    unify.expression_types(state, module.path)
+    |> list.filter(fn(item) {
+      item.0 <= start && item.1 == end && item.2 != monotype.ErrorType
+    })
+    |> list.sort(fn(a, b) { int.compare(b.0, a.0) })
+    |> list.first
+    |> result.map(fn(item) { item.2 })
+  let declared =
+    list.find(module.inferred.functions, fn(function) {
+      function.name.span == lexeme.span
+    })
+  use type_ <- result.try(
+    result.lazy_or(expression, fn() {
+      result.map(declared, fn(function) { unify.apply(function.type_, state) })
+    }),
+  )
+  let target = case unify.member_definition(state, offset) {
+    Ok(location) ->
+      Ok(#(
+        absolute_path(checked, location.path),
+        location.span.start.byte_offset,
+      ))
+    Error(_) ->
+      case resolve.editor_definition(file.parsed.module, path, offset) {
+        Ok(resolve.LocalTarget(span)) -> Ok(#(path, span.start.byte_offset))
+        Ok(resolve.ImportTarget(_)) ->
+          target(path, source, offset, overlays)
+          |> result.map(fn(site) { #(site.0, site.1) })
+        Error(_) -> Ok(#(path, start))
+      }
+  }
+  let docs = case target {
+    Ok(#(target_path, at)) ->
+      checked.files
+      |> list.find(fn(file) { absolute_path(checked, file.path) == target_path })
+      |> result.map(fn(file) { documentation(file.parsed.module, at) })
+      |> result.unwrap([])
+    Error(_) -> []
+  }
+  let signature =
+    "```pooka\n"
+    <> case lexeme.token {
+      token.Name(name) | token.UpperName(name) -> name
+      _ -> ""
+    }
+    <> ": "
+    <> monotype.to_string(type_)
+    <> "\n```"
+  Ok(case docs {
+    [] -> signature
+    _ -> signature <> "\n\n" <> string.join(docs, "\n")
+  })
+}
+
+fn documentation(module: ast.Module, offset: Int) -> List(String) {
+  module.declarations
+  |> list.flat_map(fn(declaration) {
+    case declaration {
+      ast.FunctionDeclaration(value) -> [#(value.name, value.documentation)]
+      ast.ClassDeclaration(value) -> member_documentation(value.members)
+      ast.ActorDeclaration(value) -> member_documentation(value.members)
+      ast.InterfaceDeclaration(value) ->
+        list.map(value.requirements, fn(member) {
+          #(member.name, member.documentation)
+        })
+      _ -> []
+    }
+  })
+  |> list.find(fn(entry) { entry.0.span.start.byte_offset == offset })
+  |> result.map(fn(entry) { entry.1 })
+  |> result.unwrap([])
+}
+
+fn member_documentation(
+  members: List(ast.Member),
+) -> List(#(ast.Name, List(String))) {
+  list.filter_map(members, fn(member) {
+    case member {
+      ast.MethodMember(value) | ast.BehaviourMember(value) ->
+        Ok(#(value.name, value.documentation))
+      ast.FieldMember(value) -> Ok(#(value.name, value.documentation))
+      ast.ConstructorMember(_) -> Error(Nil)
+    }
+  })
 }
 
 fn typed_member_target(

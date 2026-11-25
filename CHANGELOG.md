@@ -4,6 +4,8 @@
 
 ### LSP
 
+- Show inferred types, callable signatures, and available declaration docs on hover (#80).
+
 ### Fixed
 
 - Show the callee's type when a value cannot be called (#90).
