@@ -88,11 +88,17 @@ analyze_queue(Server) ->
 %% separate from diagnostics so neither can block the protocol message loop.
 definition_queue(Server,PreviousRevision) ->
     receive
+        {workspace_symbols,Revision,Id,Query,Roots,Docs} ->
+            refresh_navigation_cache(Revision,PreviousRevision),
+            Result = try workspace_symbols(Query,Roots,Docs)
+                     catch Class:Reason ->
+                         io:format(standard_error,"Pooka symbol lookup failed: ~p:~p~n",[Class,Reason]),
+                         []
+                     end,
+            Server ! {definition_result,Revision,Id,Result},
+            definition_queue(Server,Revision);
         {Query,Revision,Id,Uri,Position,Docs} ->
-            case Revision =:= PreviousRevision of
-                true -> ok;
-                false -> erase(lsp_navigation_cache)
-            end,
+            refresh_navigation_cache(Revision,PreviousRevision),
             Result = try navigation(Query,Uri,Position,Docs)
                 catch Class:Reason ->
                     io:format(standard_error,"Pooka definition lookup failed: ~p:~p~n",[Class,Reason]),
@@ -101,6 +107,9 @@ definition_queue(Server,PreviousRevision) ->
             Server ! {definition_result,Revision,Id,Result},
             definition_queue(Server,Revision)
     end.
+
+refresh_navigation_cache(Revision,Revision) -> ok;
+refresh_navigation_cache(_,_) -> erase(lsp_navigation_cache).
 
 %% One workspace per worker snapshot bounds retained reports even when
 %% several projects are open. The checked and inferred phases share that slot.
@@ -148,10 +157,12 @@ headers(Length) ->
 
 dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}=Request, starting, Docs, R, T, {Worker,Navigator,_}) ->
     put(lsp_versioned_edits,supports_versioned_edits(Request)),
+    put(lsp_workspace_roots,workspace_roots(Request)),
     reply(Id,#{capabilities => #{positionEncoding => <<"utf-16">>,
         documentFormattingProvider => true, documentSymbolProvider => true, definitionProvider => true, hoverProvider => true, completionProvider => #{triggerCharacters => [<<".">>]},
         signatureHelpProvider => #{triggerCharacters => [<<"(">>,<<",">>]},
         codeActionProvider => #{codeActionKinds => [<<"quickfix">>]},
+        workspaceSymbolProvider => true,
         textDocumentSync => #{openClose => true,change => 1,save => true}},
         serverInfo => #{name => <<"Pooka">>}}),
     loop(running,Docs,R,T,{Worker,Navigator,supports_file_watch(Request)});
@@ -193,6 +204,12 @@ dispatch(#{<<"method">> := <<"textDocument/didSave">>}, running, Docs, R, T, Ana
 dispatch(#{<<"method">> := <<"textDocument/didClose">>,
            <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri}}}, running, Docs, R, T, Analyzer) ->
     publish(Uri,null,[]), changed(maps:remove(Uri,Docs),R,T,Analyzer);
+dispatch(#{<<"method">> := <<"workspace/symbol">>, <<"id">> := Id,
+           <<"params">> := #{<<"query">> := Query}}, running, Docs, R, T, Analyzer)
+  when is_binary(Query) ->
+    {_,Navigator,_} = Analyzer,
+    Navigator ! {workspace_symbols,R,Id,Query,get(lsp_workspace_roots),Docs},
+    loop(running,Docs,R,T,Analyzer);
 dispatch(#{<<"method">> := <<"textDocument/documentSymbol">>, <<"id">> := Id,
            <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri}}}, running, Docs, R, T, Analyzer) ->
     Symbols = case maps:find(Uri,Docs) of
@@ -236,6 +253,40 @@ dispatch(#{<<"id">> := Id}, starting, Docs, R, T, Analyzer) ->
 dispatch(#{<<"id">> := Id}, Stage, Docs, R, T, Analyzer) ->
     error_response(Id,-32601,<<"Method not found">>), loop(Stage,Docs,R,T,Analyzer);
 dispatch(_,Stage,Docs,R,T,Analyzer) -> loop(Stage,Docs,R,T,Analyzer).
+
+workspace_roots(Request) ->
+    Params = maps:get(<<"params">>,Request,#{}),
+    Folders = case maps:get(<<"workspaceFolders">>,Params,[]) of
+        Entries when is_list(Entries) -> [Uri || #{<<"uri">> := Uri} <- Entries];
+        _ -> []
+    end,
+    [Path || Uri <- [maps:get(<<"rootUri">>,Params,null)|Folders], is_binary(Uri),
+             {ok,Path} <- [file_path(Uri)]].
+
+workspace_symbols(Query,Roots,Docs) ->
+    Open = [{Uri,Path,Source} || {Uri,{Path,_,Source}} <- maps:to_list(Docs)],
+    Overlays = [{Path,Source} || {_,Path,Source} <- Open],
+    Uris = maps:from_list([{Path,Uri} || {Uri,Path,_} <- Open]),
+    Probes = [filename:join(Root,<<"workspace.pooka">>) || Root <- Roots] ++
+             [Path || {_,Path,_} <- Open],
+    Files = 'tools@lsp@symbols':workspace(Probes,Overlays),
+    Folded = string:casefold(Query),
+    lists:sublist(lists:append([
+        collect_symbols(json:decode(Outline),Namespace,maps:get(Path,Uris,file_uri(Path)),Text,Folded)
+        || {Path,Namespace,Text,Outline} <- Files
+    ]),250).
+
+collect_symbols(Symbols,Namespace,Uri,Source,Query) ->
+    lists:flatmap(fun(#{<<"name">> := Name,<<"kind">> := Kind,
+                        <<"selectionRange">> := Selection,<<"children">> := Children}) ->
+        Qualified = <<Namespace/binary,".",Name/binary>>,
+        Match = case Query =:= <<>> orelse string:find(string:casefold(Qualified),Query) =/= nomatch of
+            true -> [#{name => Name,kind => Kind,containerName => Namespace,
+                       location => #{uri => Uri,range => lsp_range(Selection,Source)}}];
+            false -> []
+        end,
+        Match ++ collect_symbols(Children,Qualified,Uri,Source,Query)
+    end,Symbols).
 
 supports_versioned_edits(#{<<"params">> := #{<<"capabilities">> :=
                          #{<<"workspace">> := #{<<"workspaceEdit">> :=

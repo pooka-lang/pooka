@@ -641,6 +641,18 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
             signature = response["result"]
             assert response["id"] == 37 and signature["activeParameter"] == active, response
             assert signature["signatures"][0]["label"] == label, response
+        send("textDocument/didChange", {
+            "textDocument": {"uri": uri, "version": 39},
+            "contentChanges": [{"text": "module main\nvalue() { 42 }\n"}],
+        })
+        assert events.get(timeout=15)["params"]["version"] == 39
+        send("workspace/symbol", {"query": "VALUE"}, 38)
+        response = events.get(timeout=15)
+        assert response["id"] == 38, response
+        values = [item for item in response["result"] if item["name"] == "value"]
+        assert {item["containerName"] for item in values} >= {"main", "dependency", "second"}, response
+        unsaved, = [item for item in values if item["location"]["uri"] == uri]
+        assert unsaved["location"]["range"]["start"] == {"line": 1, "character": 0}, response
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
         send("shutdown", request=3)
