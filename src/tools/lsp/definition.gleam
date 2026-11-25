@@ -205,13 +205,13 @@ fn navigation_cache(
   compute: fn() -> Result(a, Nil),
 ) -> Result(a, Nil)
 
-fn typed_report(checked: check.Report) {
+pub fn typed_report(checked: check.Report) {
   navigation_cache(#("typed", checked.project.root), fn() {
     infer.definitions_in_memory(checked) |> result.replace_error(Nil)
   })
 }
 
-fn project_report(path: String, overlays: List(#(String, String))) {
+pub fn project_report(path: String, overlays: List(#(String, String))) {
   use root <- result.try(analysis.workspace(path))
   navigation_cache(#("checked", root), fn() { build_report(root, overlays) })
 }

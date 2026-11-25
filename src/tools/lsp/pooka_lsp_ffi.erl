@@ -150,6 +150,7 @@ dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}=Request, starting, 
     put(lsp_versioned_edits,supports_versioned_edits(Request)),
     reply(Id,#{capabilities => #{positionEncoding => <<"utf-16">>,
         documentFormattingProvider => true, documentSymbolProvider => true, definitionProvider => true, hoverProvider => true, completionProvider => #{triggerCharacters => [<<".">>]},
+        signatureHelpProvider => #{triggerCharacters => [<<"(">>,<<",">>]},
         codeActionProvider => #{codeActionKinds => [<<"quickfix">>]},
         textDocumentSync => #{openClose => true,change => 1,save => true}},
         serverInfo => #{name => <<"Pooka">>}}),
@@ -205,7 +206,8 @@ dispatch(#{<<"method">> := Method, <<"id">> := Id,
            <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri},
                             <<"position">> := Position}}, running, Docs, R, T, Analyzer)
   when Method =:= <<"textDocument/definition">>; Method =:= <<"textDocument/hover">>;
-       Method =:= <<"textDocument/completion">> ->
+       Method =:= <<"textDocument/completion">>;
+       Method =:= <<"textDocument/signatureHelp">> ->
     {_,Navigator,_} = Analyzer,
     Navigator ! {Method,R,Id,Uri,Position,Docs},
     loop(running,Docs,R,T,Analyzer);
@@ -413,6 +415,13 @@ navigation(Query,Uri,Position,Docs) ->
         error -> null
     end.
 
+execute_navigation(<<"textDocument/signatureHelp">>,Path,Source,Offset,Overlays,_) ->
+    case 'tools@lsp@signature':help(Path,Source,Offset,Overlays) of
+        {ok,{Label,Labels,Active}} ->
+            #{signatures => [#{label => Label,parameters => [#{label => Parameter} || Parameter <- Labels]}],
+              activeSignature => 0,activeParameter => Active};
+        {error,_} -> null
+    end;
 execute_navigation(<<"textDocument/completion">>,Path,Source,Offset,Overlays,_) ->
     case 'tools@lsp@completion':complete(Path,Source,Offset,Overlays) of
         {ok,{Start,End,Names}} ->

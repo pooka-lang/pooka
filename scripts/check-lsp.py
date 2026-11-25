@@ -617,6 +617,30 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         reports = [events.get(timeout=15) for _ in range(2)]
         assert any(message.get("id") == 36 and message["result"] == [] for message in reports), reports
         assert any(message.get("params", {}).get("version") == 35 for message in reports), reports
+        declarations = (
+            "module main\n"
+            "pair(first: Int, second: String) -> String { #(first, second).1 }\n"
+            "label(value: Int) -> String { match value { _ -> \"name\" } }\n"
+        )
+        for version, call, marker, label, active in [
+            (36, "  pair(1, label(2))", "2", "label(Int) -> String", 0),
+            (37, "  pair(1, label(2))", "label", "pair(Int, String) -> String", 1),
+            (38, "  pair(1, ", "", "pair(Int, String) -> String", 1),
+        ]:
+            position = len(call) if not marker else call.index(marker)
+            send("textDocument/didChange", {
+                "textDocument": {"uri": uri, "version": version},
+                "contentChanges": [{"text": declarations + "main() {\n" + call + "\n}\n"}],
+            })
+            assert events.get(timeout=15)["params"]["version"] == version
+            send("textDocument/signatureHelp", {
+                "textDocument": {"uri": uri},
+                "position": {"line": 4, "character": position},
+            }, 37)
+            response = events.get(timeout=15)
+            signature = response["result"]
+            assert response["id"] == 37 and signature["activeParameter"] == active, response
+            assert signature["signatures"][0]["label"] == label, response
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
         send("shutdown", request=3)

@@ -4,6 +4,7 @@
 
 ### LSP
 
+- Show callable signatures and the active parameter while writing calls (#83).
 - Offer versioned editor quick fixes for precise compiler suggestions (#84).
 - Complete names in scope, module exports, and members of typed receivers in unsaved buffers (#81).
 - Reuse checked and inferred project snapshots for repeated hover and definition requests within the same editor revision (#82).

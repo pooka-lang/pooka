@@ -131,6 +131,15 @@ pub fn to_string(value: Type) -> String {
   format(value, dict.new()).0
 }
 
+/// Render parameter labels and the result with one set of type variable names.
+pub fn signature(
+  parameters: List(Type),
+  result: Type,
+) -> #(List(String), String) {
+  let #(labels, names) = format_list(parameters, dict.new())
+  #(labels, format(result, names).0)
+}
+
 fn format(
   value: Type,
   names: Dict(Int, String),
