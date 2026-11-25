@@ -213,22 +213,19 @@ fn typed_report(checked: check.Report) {
 
 fn project_report(path: String, overlays: List(#(String, String))) {
   use root <- result.try(analysis.workspace(path))
-  navigation_cache(#("checked", root), fn() {
-    use loaded <- result.try(project.load(root) |> result.replace_error(Nil))
-    use graph <- result.try(
-      package.resolve_offline(loaded) |> result.replace_error(Nil),
-    )
-    use report <- result.try(
-      check.check_graph_with_overlays(
-        graph,
-        True,
-        dict.from_list(overlays),
-        True,
-      )
-      |> result.replace_error(Nil),
-    )
-    Ok(#(graph, report))
-  })
+  navigation_cache(#("checked", root), fn() { build_report(root, overlays) })
+}
+
+pub fn build_report(root: String, overlays: List(#(String, String))) {
+  use loaded <- result.try(project.load(root) |> result.replace_error(Nil))
+  use graph <- result.try(
+    package.resolve_offline(loaded) |> result.replace_error(Nil),
+  )
+  use report <- result.try(
+    check.check_graph_with_overlays(graph, True, dict.from_list(overlays), True)
+    |> result.replace_error(Nil),
+  )
+  Ok(#(graph, report))
 }
 
 type ImportQuery {
@@ -244,6 +241,21 @@ fn cross_file_target(
 ) -> Result(#(String, Int, Int), Nil) {
   use #(original, member) <- result.try(find_import(current, query))
   use #(graph, report) <- result.try(project_report(path, overlays))
+  use target <- result.try(imported_file(graph, report, path, original.span))
+  use span <- result.try(target_span(target, member))
+  Ok(#(
+    absolute_path(report, target.path),
+    span.start.byte_offset,
+    span.end.byte_offset,
+  ))
+}
+
+pub fn imported_file(
+  graph: package.Graph,
+  report: check.Report,
+  path: String,
+  import_span: Span,
+) -> Result(compiler.Checked, Nil) {
   let loaded = graph.root
   use file <- result.try(
     list.find(report.files, fn(file) {
@@ -252,7 +264,7 @@ fn cross_file_target(
   )
   use imported <- result.try(
     list.find(file.parsed.module.imports, fn(imported) {
-      imported.span == original.span
+      imported.span == import_span
     }),
   )
   let owner_name = package.owner(file.path, loaded.name)
@@ -283,14 +295,7 @@ fn cross_file_target(
       list.contains(visible, package.owner(target.path, loaded.name))
     })
   case targets, visible_targets {
-    [_], [target] -> {
-      use span <- result.try(target_span(target, member))
-      Ok(#(
-        absolute_path(report, target.path),
-        span.start.byte_offset,
-        span.end.byte_offset,
-      ))
-    }
+    [_], [target] -> Ok(target)
     _, _ -> Error(Nil)
   }
 }
@@ -341,7 +346,7 @@ fn find_import(file: compiler.Checked, query: ImportQuery) {
   }
 }
 
-fn module_alias(imported: ast.Import) -> Result(String, Nil) {
+pub fn module_alias(imported: ast.Import) -> Result(String, Nil) {
   case imported.alias {
     Some(alias) -> Ok(alias.name)
     None -> list.last(imported.module.segments)
@@ -383,7 +388,7 @@ fn contains(span: Span, offset: Int) -> Bool {
   span.start.byte_offset <= offset && offset < span.end.byte_offset
 }
 
-fn absolute_path(report: check.Report, path: String) -> String {
+pub fn absolute_path(report: check.Report, path: String) -> String {
   let displayed = check.display_path(report, path)
   case filepath.is_absolute(displayed) {
     True -> displayed

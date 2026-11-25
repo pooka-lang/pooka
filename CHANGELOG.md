@@ -4,6 +4,7 @@
 
 ### LSP
 
+- Complete names in scope, module exports, and members of typed receivers in unsaved buffers (#81).
 - Reuse checked and inferred project snapshots for repeated hover and definition requests within the same editor revision (#82).
 - Show inferred types, callable signatures, and available declaration docs on hover (#80).
 

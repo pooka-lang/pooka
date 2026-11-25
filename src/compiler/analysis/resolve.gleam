@@ -12,6 +12,7 @@
 
 import compiler/parser/ast
 import diagnostics/diagnostic.{type Diagnostic}
+import gleam/bool
 import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
@@ -60,6 +61,31 @@ type Event {
   LocalBinding(ast.Name)
   LocalRead(Span)
   Definition(Span, DefinitionTarget)
+  Completion(Span, CompletionScope)
+}
+
+pub type CompletionScope {
+  VisibleNames(List(String))
+  ModuleAlias(String)
+  MemberReceiver(Span)
+}
+
+/// Completion substitutes this identifier for the unfinished token. Only a
+/// resolver event at the editor's substitution offset is accepted.
+pub const completion_marker = "pooka_editor_completion_marker"
+
+pub fn editor_completion(
+  module: ast.Module,
+  path: String,
+  offset: Int,
+) -> Result(CompletionScope, Nil) {
+  resolve_events(module, path, dict.new(), Some([]))
+  |> list.find_map(fn(event) {
+    case event {
+      Completion(span, scope) if span.start.byte_offset == offset -> Ok(scope)
+      _ -> Error(Nil)
+    }
+  })
 }
 
 type DefinitionTarget {
@@ -466,6 +492,10 @@ fn unknown(
     TypeName -> scope.types
     ValueName -> scope.values
   }
+  use <- bool.lazy_guard(
+    name == completion_marker && scope.editor_errors != None,
+    fn() { [Completion(span, VisibleNames(set.to_list(candidates)))] },
+  )
   case set.contains(candidates, name) {
     True -> {
       let builtin_echo =
@@ -1046,6 +1076,19 @@ fn expression(value: ast.Expression, scope: Scope) -> List(Event) {
           private_member_use(name.name, scope),
         ),
       )
+    ast.FieldAccess(subject:, name:, ..)
+      if name.name == completion_marker && scope.editor_errors != None
+    -> {
+      let target = case subject {
+        ast.Variable(alias, _) ->
+          case set.contains(scope.qualifiers, alias) {
+            True -> ModuleAlias(alias)
+            False -> MemberReceiver(ast.expression_span(subject))
+          }
+        _ -> MemberReceiver(ast.expression_span(subject))
+      }
+      [Completion(name.span, target), ..expression(subject, scope)]
+    }
     ast.FieldAccess(subject:, name:, ..) ->
       list.append(
         list.append(
