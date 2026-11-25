@@ -621,13 +621,9 @@ fn bind(scope: Scope, bindings: List(ast.Name)) -> Scope {
     ..scope,
     values: set.union(scope.values, set.from_list(names)),
     locals: set.union(scope.locals, set.from_list(names)),
-    local_spans: case scope.editor_errors {
-      None -> scope.local_spans
-      Some(_) ->
-        list.fold(bindings, scope.local_spans, fn(spans, binding) {
-          dict.insert(spans, binding.name, binding.span)
-        })
-    },
+    local_spans: list.fold(bindings, scope.local_spans, fn(spans, binding) {
+      dict.insert(spans, binding.name, binding.span)
+    }),
     qualifiers: set.difference(scope.qualifiers, set.from_list(names)),
   )
 }
@@ -1177,15 +1173,31 @@ fn assignment_target(
       let resolution = unknown(name.name, name.span, scope, ValueName, NameOnly)
       case has_errors(resolution), set.contains(scope.locals, name.name) {
         True, _ -> resolution
-        False, True -> [
-          Issue(assignment_error(
-            scope,
-            name,
-            "immutable_local",
-            "assignment to an immutable binding",
-            "Parameters and local bindings are immutable. Introduce a new binding in a nested scope instead.",
-          )),
-        ]
+        False, True -> {
+          let error =
+            assignment_error(
+              scope,
+              name,
+              "immutable_local",
+              "assignment to an immutable binding",
+              "Parameters and local bindings are immutable.",
+            )
+          let error = case dict.get(scope.local_spans, name.name) {
+            Ok(binding) ->
+              diagnostic.secondary(
+                error,
+                location.new(scope.path, binding),
+                "bound here",
+              )
+            Error(_) -> error
+          }
+          [
+            Issue(diagnostic.help(
+              error,
+              "Use `let` to bind the new value to a new name.",
+            )),
+          ]
+        }
         False, False ->
           case dict.get(scope.fields, name.name) {
             Error(Nil) -> [
@@ -1536,9 +1548,9 @@ fn reference(name: String, namespace: Namespace, scope: Scope) -> List(Event) {
   let member = namespace == ValueName && set.contains(scope.members, name)
   case local, member {
     True, _ ->
-      case dict.get(scope.local_spans, name) {
-        Ok(span) -> [LocalRead(span)]
-        Error(Nil) -> []
+      case scope.editor_errors, dict.get(scope.local_spans, name) {
+        Some(_), Ok(span) -> [LocalRead(span)]
+        _, _ -> []
       }
 
     False, True -> private_member_use(name, scope)
