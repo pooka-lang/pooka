@@ -2,9 +2,17 @@
 
 ## Unreleased
 
+### LSP
+
+### Fixed
+
+- Show the callee's type when a value cannot be called (#90).
+- Point to the receiver and show its type when it has no members (#91).
+- Point to the original binding when an assignment targets an immutable local or parameter (#92).
+
 ## 0.4.0 - 2026-11-23
 
-### Added
+### LSP
 
 - Add `pooka lsp` with live offline diagnostics, formatting, document outlines, and go-to-definition for local names, imports, constructors, and typed members (#77).
 
