@@ -65,7 +65,9 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         for start, end in ((0, 7), (7, 24), (24, len(startup))):
             server.stdin.write(startup[start:end])
             server.stdin.flush()
-        assert events.get(timeout=10)["result"]["capabilities"]["documentFormattingProvider"]
+        capabilities = events.get(timeout=10)["result"]["capabilities"]
+        assert capabilities["documentFormattingProvider"]
+        legend = capabilities["semanticTokensProvider"]["legend"]["tokenTypes"]
         send("initialized", {})
         registration = events.get(timeout=10)
         assert registration["method"] == "client/registerCapability"
@@ -716,6 +718,25 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         assert set(changes) == {uri, second.resolve().as_uri()}, response
         assert len(changes[uri]) == 2, response
         assert all(edit["range"]["start"] != rename_position for edit in changes[uri]), response
+        semantic_line = 'read(value: Int) { #("🦌", value) }'
+        send("textDocument/didChange", {
+            "textDocument": {"uri": uri, "version": 41},
+            "contentChanges": [{"text": f"module main\n{semantic_line}\nbroken() {{\n"}],
+        })
+        assert events.get(timeout=15)["params"]["version"] == 41
+        send("textDocument/semanticTokens/full", {"textDocument": {"uri": uri}}, 45)
+        response = events.get(timeout=15)
+        assert response["id"] == 45, response
+        data = response["result"]["data"]
+        decoded = []
+        line = column = 0
+        for delta_line, delta_col, length, kind, modifiers in zip(*[iter(data)] * 5):
+            line += delta_line
+            column = delta_col if delta_line else column + delta_col
+            decoded.append((line, column, length, legend[kind], modifiers))
+        read_col = len(semantic_line[:semantic_line.rindex("value")].encode("utf-16-le")) // 2
+        assert {(1, 0, 4, "function", 1), (1, 5, 5, "parameter", 3),
+                (1, read_col, 5, "parameter", 2)} <= set(decoded), decoded
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
         send("shutdown", request=3)

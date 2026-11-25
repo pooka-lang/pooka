@@ -153,6 +153,18 @@ pub fn editor_binding(module: ast.Module, path: String, span: Span) -> Bool {
   })
 }
 
+pub fn editor_bindings(module: ast.Module, path: String) -> List(Span) {
+  resolve_events(module, path, dict.new(), Some([]))
+  |> list.filter_map(fn(event) {
+    case event {
+      LocalRead(span) -> Ok(span)
+      LocalBinding(name) -> Ok(name.span)
+      _ -> Error(Nil)
+    }
+  })
+  |> list.unique
+}
+
 fn definition_target(
   module: ast.Module,
   target: DefinitionTarget,

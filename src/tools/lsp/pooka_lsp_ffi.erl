@@ -165,6 +165,9 @@ dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}=Request, starting, 
         documentFormattingProvider => true, documentSymbolProvider => true, definitionProvider => true, hoverProvider => true, completionProvider => #{triggerCharacters => [<<".">>]},
         signatureHelpProvider => #{triggerCharacters => [<<"(">>,<<",">>]},
         codeActionProvider => #{codeActionKinds => [<<"quickfix">>]},
+        semanticTokensProvider => #{full => true,
+            legend => #{tokenTypes => 'tools@lsp@semantic':legend(),
+                        tokenModifiers => [<<"declaration">>,<<"readonly">>]}},
         workspaceSymbolProvider => true, referencesProvider => true,
         renameProvider => case get(lsp_versioned_edits) of
             true -> #{prepareProvider => true};
@@ -216,6 +219,14 @@ dispatch(#{<<"method">> := <<"workspace/symbol">>, <<"id">> := Id,
   when is_binary(Query) ->
     {_,Navigator,_} = Analyzer,
     Navigator ! {workspace_symbols,R,Id,Query,get(lsp_workspace_roots),Docs},
+    loop(running,Docs,R,T,Analyzer);
+dispatch(#{<<"method">> := <<"textDocument/semanticTokens/full">>, <<"id">> := Id,
+           <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri}}}, running, Docs, R, T, Analyzer) ->
+    Data = case maps:find(Uri,Docs) of
+        {ok,{Path,_,Source}} -> semantic_data('tools@lsp@semantic':tokens(Path,Source),Source);
+        error -> []
+    end,
+    reply(Id,#{data => Data}),
     loop(running,Docs,R,T,Analyzer);
 dispatch(#{<<"method">> := <<"textDocument/documentSymbol">>, <<"id">> := Id,
            <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri}}}, running, Docs, R, T, Analyzer) ->
@@ -280,6 +291,17 @@ dispatch(#{<<"id">> := Id}, starting, Docs, R, T, Analyzer) ->
 dispatch(#{<<"id">> := Id}, Stage, Docs, R, T, Analyzer) ->
     error_response(Id,-32601,<<"Method not found">>), loop(Stage,Docs,R,T,Analyzer);
 dispatch(_,Stage,Docs,R,T,Analyzer) -> loop(Stage,Docs,R,T,Analyzer).
+
+semantic_data(Tokens,Source) ->
+    {Parts,_} = lists:mapfoldl(fun({Start,End,Kind,Modifiers},Previous) ->
+        Gap = binary:part(Source,Previous,Start-Previous),
+        #{line := DeltaLine,character := DeltaColumn} =
+            position(#{<<"byte_offset">> => byte_size(Gap)},Gap),
+        Name = binary:part(Source,Start,End-Start),
+        #{character := Length} = position(#{<<"byte_offset">> => byte_size(Name)},Name),
+        {[DeltaLine,DeltaColumn,Length,Kind,Modifiers],Start}
+    end,0,Tokens),
+    lists:append(Parts).
 
 workspace_roots(Request) ->
     Params = maps:get(<<"params">>,Request,#{}),
