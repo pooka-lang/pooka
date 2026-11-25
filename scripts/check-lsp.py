@@ -57,7 +57,10 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
 
     try:
         startup = frame("initialize", {"capabilities": {
-            "workspace": {"didChangeWatchedFiles": {"dynamicRegistration": True}},
+            "workspace": {
+                "didChangeWatchedFiles": {"dynamicRegistration": True},
+                "workspaceEdit": {"documentChanges": True},
+            },
         }}, 1)
         for start, end in ((0, 7), (7, 24), (24, len(startup))):
             server.stdin.write(startup[start:end])
@@ -580,6 +583,40 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
                     },
                 },
             } in response["result"], response
+        typo_line = '  #("🦌", scor)'
+        typo = f"module main\nmain() {{\n  let score = 1\n{typo_line}\n}}\n"
+        send("textDocument/didChange", {
+            "textDocument": {"uri": uri, "version": 34},
+            "contentChanges": [{"text": typo}],
+        })
+        report = events.get(timeout=15)["params"]
+        assert report["version"] == 34, report
+        unknown_name, = [item for item in report["diagnostics"]
+                         if item["data"]["code"] == "analysis.unknown_name"]
+        utf16_start = len(typo_line.split("scor")[0].encode("utf-16-le")) // 2
+        fix_range = {"start": {"line": 3, "character": utf16_start},
+                     "end": {"line": 3, "character": utf16_start + 4}}
+        action_params = {
+            "textDocument": {"uri": uri},
+            "range": fix_range,
+            "context": {"diagnostics": [unknown_name], "only": ["quickfix"]},
+        }
+        send("textDocument/codeAction", action_params, 35)
+        response = events.get(timeout=10)
+        action, = response["result"]
+        assert response["id"] == 35 and action["kind"] == "quickfix", response
+        assert action["edit"]["documentChanges"] == [{
+            "textDocument": {"uri": uri, "version": 34},
+            "edits": [{"range": fix_range, "newText": "score"}],
+        }], response
+        send("textDocument/didChange", {
+            "textDocument": {"uri": uri, "version": 35},
+            "contentChanges": [{"text": typo.replace(typo_line, typo_line.replace("scor", "score"))}],
+        })
+        send("textDocument/codeAction", action_params, 36)
+        reports = [events.get(timeout=15) for _ in range(2)]
+        assert any(message.get("id") == 36 and message["result"] == [] for message in reports), reports
+        assert any(message.get("params", {}).get("version") == 35 for message in reports), reports
         send("textDocument/didClose", {"textDocument": {"uri": uri}})
         assert events.get(timeout=10)["params"]["diagnostics"] == []
         send("shutdown", request=3)
