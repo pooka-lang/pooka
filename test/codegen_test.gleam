@@ -621,7 +621,7 @@ pub fn unicode_codepoint_patterns_and_encodings_execute_test() {
 pub fn result_propagation_in_match_fallbacks_stays_in_its_source_callable_test() {
   assert output(
       "codegen_propagate_later_branch",
-      "read(values) -> Result(List(Int), String) { match values { [] -> Ok([])\n[first, ..rest] -> { let value = checked(first)?\nlet remaining = read(rest)?\nOk([value]) } } }\nchecked(value) -> Result(Int, String) { match value { 0 -> Error(\"zero\")\n_ -> Ok(value) } }\nmain() { echo #(read([1, 0]), read([]), 42) }",
+      "read(values) -> Result(List(Int), String) { match values { [] -> Ok([])\n[first, ..rest] -> { let value = checked(first)?\nlet _remaining = read(rest)?\nOk([value]) } } }\nchecked(value) -> Result(Int, String) { match value { 0 -> Error(\"zero\")\n_ -> Ok(value) } }\nmain() { echo #(read([1, 0]), read([]), 42) }",
     )
     == "#(Error(\"zero\"), Ok([]), 42)\n"
 }

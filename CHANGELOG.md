@@ -22,6 +22,7 @@
 
 ### Fixed
 
+- Report the same unused local bindings in `pooka check` and the editor for saved, valid files.
 - Show the callee's type when a value cannot be called (#90).
 - Point to the receiver and show its type when it has no members (#91).
 - Point to the original binding when an assignment targets an immutable local or parameter (#92).

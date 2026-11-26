@@ -908,16 +908,20 @@ fn track_binding(
   block: Span,
 ) -> #(Scope, List(Event)) {
   let eligible = case scope.editor_errors {
-    None -> False
+    None -> True
     Some(errors) ->
       !list.any(errors, fn(error) {
         error.start.byte_offset >= block.start.byte_offset
         && error.start.byte_offset <= block.end.byte_offset
       })
   }
-  case eligible {
+  let names = ast.pattern_bindings(pattern)
+  let distinct = names |> list.map(fn(name) { name.name }) |> list.unique
+  // Duplicate bindings already have a structural error. Neither occurrence
+  // should produce a separate unused-binding warning.
+  case eligible && list.length(names) == list.length(distinct) {
     False -> #(scope, [])
-    True -> #(scope, list.map(ast.pattern_bindings(pattern), LocalBinding))
+    True -> #(scope, list.map(names, LocalBinding))
   }
 }
 
@@ -1633,9 +1637,9 @@ fn reference(name: String, namespace: Namespace, scope: Scope) -> List(Event) {
   let member = namespace == ValueName && set.contains(scope.members, name)
   case local, member {
     True, _ ->
-      case scope.editor_errors, dict.get(scope.local_spans, name) {
-        Some(_), Ok(span) -> [LocalRead(span)]
-        _, _ -> []
+      case dict.get(scope.local_spans, name) {
+        Ok(span) -> [LocalRead(span)]
+        Error(_) -> []
       }
 
     False, True -> private_member_use(name, scope)

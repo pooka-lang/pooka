@@ -105,8 +105,9 @@ fn check_source_mode(
       !list.contains(lex_lines, parse_error.span(error).start.line)
     })
     |> list.map(parse_error.to_diagnostic(_, path))
-  let editor_warnings = case recover_blocks {
-    True ->
+  let editor_warnings = case recover_blocks, lexed.errors, parsed.errors {
+    True, [], [] -> []
+    True, _, _ ->
       resolve.editor_local_warnings(
         parsed.module,
         path,
@@ -115,7 +116,7 @@ fn check_source_mode(
           list.map(parsed.errors, parse_error.span),
         ),
       )
-    False -> []
+    False, _, _ -> []
   }
   let diagnostics =
     [
