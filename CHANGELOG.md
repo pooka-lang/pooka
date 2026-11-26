@@ -4,6 +4,7 @@
 
 ### LSP
 
+- Refresh workspace symbol search when editor folders are added or removed (#107).
 - Highlight resolved references in the current editor buffer (#106).
 - Run an individual saved test from an editor code lens (#89).
 - Highlight declarations and resolved lexical names with semantic tokens, including in incomplete buffers (#88).
