@@ -8,6 +8,7 @@
 serve() ->
     ok = io:setopts(standard_io,[binary,{encoding,latin1}]),
     Server = self(),
+    put(lsp_pending_navigation,#{}),
     Reader = spawn_link(fun() -> read_messages(Server) end),
     Analyzer = spawn(fun() -> analyze_queue(Server) end),
     Navigator = spawn(fun() -> definition_queue(Server,undefined) end),
@@ -62,14 +63,20 @@ loop(Stage,Docs,Revision,Timer,Analyzer) ->
                 publish(Uri,Version,Diagnostics)
             end,Results),
             loop(Stage,Docs,Revision,Timer,Analyzer);
-        {definition_result,Revision,Id,Result} when Stage =:= running ->
-            case Result of
-                {request_error,Message} -> error_response(Id,-32602,Message);
-                _ -> reply(Id,Result)
-            end,
+        {navigation_start,Worker,Id,Ref} when Stage =:= running ->
+            Worker ! {navigation_permission,Ref,pending_navigation(Id,Ref)},
             loop(Stage,Docs,Revision,Timer,Analyzer);
-        {definition_result,_,Id,_} when Stage =:= running ->
-            error_response(Id,-32801,<<"Document changed during definition lookup">>),
+        {navigation_result,RequestRevision,Id,Ref,Result} when Stage =:= running ->
+            case pending_navigation(Id,Ref) of
+                true ->
+                    remove_navigation(Id),
+                    case {RequestRevision =:= Revision,Result} of
+                        {false,_} -> error_response(Id,-32801,<<"Document changed during the request">>);
+                        {true,{request_error,Message}} -> error_response(Id,-32602,Message);
+                        {true,_} -> reply(Id,Result)
+                    end;
+                false -> ok
+            end,
             loop(Stage,Docs,Revision,Timer,Analyzer);
         {test_result,Worker,Id,Result} when Stage =:= running ->
             case erase(lsp_test_worker) of
@@ -98,25 +105,40 @@ analyze_queue(Server) ->
 %% separate from diagnostics so neither can block the protocol message loop.
 definition_queue(Server,PreviousRevision) ->
     receive
-        {workspace_symbols,Revision,Id,Query,Roots,Docs} ->
-            refresh_navigation_cache(Revision,PreviousRevision),
-            Result = try workspace_symbols(Query,Roots,Docs)
-                     catch Class:Reason ->
-                         io:format(standard_error,"Pooka symbol lookup failed: ~p:~p~n",[Class,Reason]),
-                         []
-                     end,
-            Server ! {definition_result,Revision,Id,Result},
-            definition_queue(Server,Revision);
-        {Query,Revision,Id,Uri,Position,Docs} ->
-            refresh_navigation_cache(Revision,PreviousRevision),
-            Result = try navigation(Query,Uri,Position,Docs)
-                catch Class:Reason ->
-                    io:format(standard_error,"Pooka definition lookup failed: ~p:~p~n",[Class,Reason]),
-                    null
-                end,
-            Server ! {definition_result,Revision,Id,Result},
-            definition_queue(Server,Revision)
+        {navigation,Revision,Id,Ref,Work} ->
+            Server ! {navigation_start,self(),Id,Ref},
+            receive
+                {navigation_permission,Ref,true} ->
+                    refresh_navigation_cache(Revision,PreviousRevision),
+                    Result = try navigation_work(Work)
+                             catch Class:Reason ->
+                                 io:format(standard_error,"Pooka navigation failed: ~p:~p~n",[Class,Reason]),
+                                 null
+                             end,
+                    Server ! {navigation_result,Revision,Id,Ref,Result},
+                    definition_queue(Server,Revision);
+                {navigation_permission,Ref,false} ->
+                    definition_queue(Server,PreviousRevision)
+            end
     end.
+
+navigation_work({workspace_symbols,Query,Roots,Docs}) ->
+    workspace_symbols(Query,Roots,Docs);
+navigation_work({document,Query,Uri,Position,Docs}) ->
+    navigation(Query,Uri,Position,Docs).
+
+enqueue_navigation(Worker,Revision,Id,Work) ->
+    Ref = make_ref(),
+    Pending = get(lsp_pending_navigation),
+    put(lsp_pending_navigation,Pending#{Id => Ref}),
+    Worker ! {navigation,Revision,Id,Ref,Work}.
+
+pending_navigation(Id,Ref) -> maps:find(Id,get(lsp_pending_navigation)) =:= {ok,Ref}.
+
+remove_navigation(Id) ->
+    Pending = get(lsp_pending_navigation),
+    put(lsp_pending_navigation,maps:remove(Id,Pending)),
+    maps:is_key(Id,Pending).
 
 refresh_navigation_cache(Revision,Revision) -> ok;
 refresh_navigation_cache(_,_) -> erase(lsp_navigation_cache).
@@ -189,6 +211,13 @@ dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}=Request, starting, 
 dispatch(#{<<"method">> := <<"initialized">>}, running, Docs, R, T, {Worker,Navigator,true}) ->
     register_file_watch(),
     loop(running,Docs,R,T,{Worker,Navigator,false});
+dispatch(#{<<"method">> := <<"$/cancelRequest">>, <<"params">> := #{<<"id">> := Id}},
+         running, Docs, R, T, Analyzer) ->
+    case remove_navigation(Id) of
+        true -> error_response(Id,-32800,<<"Request cancelled">>);
+        false -> ok
+    end,
+    loop(running,Docs,R,T,Analyzer);
 dispatch(#{<<"method">> := <<"workspace/didChangeWorkspaceFolders">>,
            <<"params">> := #{<<"event">> := #{<<"added">> := Added,<<"removed">> := Removed}}},
          running, Docs, R, T, Analyzer) when is_list(Added), is_list(Removed) ->
@@ -235,7 +264,7 @@ dispatch(#{<<"method">> := <<"workspace/symbol">>, <<"id">> := Id,
            <<"params">> := #{<<"query">> := Query}}, running, Docs, R, T, Analyzer)
   when is_binary(Query) ->
     {_,Navigator,_} = Analyzer,
-    Navigator ! {workspace_symbols,R,Id,Query,get(lsp_workspace_roots),Docs},
+    enqueue_navigation(Navigator,R,Id,{workspace_symbols,Query,get(lsp_workspace_roots),Docs}),
     loop(running,Docs,R,T,Analyzer);
 dispatch(#{<<"method">> := <<"textDocument/semanticTokens/full">>, <<"id">> := Id,
            <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri}}}, running, Docs, R, T, Analyzer) ->
@@ -275,7 +304,7 @@ dispatch(#{<<"method">> := <<"textDocument/rename">>, <<"id">> := Id,
     case get(lsp_versioned_edits) of
         true ->
             {_,Navigator,_} = Analyzer,
-            Navigator ! {{rename,Name,Docs},R,Id,Uri,Position,Docs};
+            enqueue_navigation(Navigator,R,Id,{document,{rename,Name,Docs},Uri,Position,Docs});
         _ -> error_response(Id,-32602,<<"Rename requires versioned workspace edits">>)
     end,
     loop(running,Docs,R,T,Analyzer);
@@ -285,7 +314,7 @@ dispatch(#{<<"method">> := <<"textDocument/references">>, <<"id">> := Id,
          running, Docs, R, T, Analyzer) ->
     {_,Navigator,_} = Analyzer,
     Include = maps:get(<<"includeDeclaration">>,Context,false),
-    Navigator ! {{references,Include},R,Id,Uri,Position,Docs},
+    enqueue_navigation(Navigator,R,Id,{document,{references,Include},Uri,Position,Docs}),
     loop(running,Docs,R,T,Analyzer);
 dispatch(#{<<"method">> := Method, <<"id">> := Id,
            <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri},
@@ -296,7 +325,7 @@ dispatch(#{<<"method">> := Method, <<"id">> := Id,
        Method =:= <<"textDocument/signatureHelp">>;
        Method =:= <<"textDocument/prepareRename">> ->
     {_,Navigator,_} = Analyzer,
-    Navigator ! {Method,R,Id,Uri,Position,Docs},
+    enqueue_navigation(Navigator,R,Id,{document,Method,Uri,Position,Docs}),
     loop(running,Docs,R,T,Analyzer);
 dispatch(#{<<"method">> := <<"textDocument/codeAction">>, <<"id">> := Id,
            <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri},

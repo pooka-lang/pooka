@@ -679,6 +679,20 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         assert events.get(timeout=15)["params"]["uri"] == uri
         send("workspace/symbol", {"query": "main.main"}, 50)
         assert events.get(timeout=15)["result"] == []
+        # Send the queued work and cancellation together, ahead of a final
+        # request that also detects stray replies from cancelled work.
+        server.stdin.write(
+            frame("workspace/symbol", {"query": "value"}, 52)
+            + frame("workspace/symbol", {"query": "value"}, 53)
+            + frame("$/cancelRequest", {"id": 53})
+            + frame("workspace/symbol", {"query": "value"}, 54)
+        )
+        server.stdin.flush()
+        replies = {message["id"]: message for message in
+                   [events.get(timeout=15) for _ in range(3)]}
+        assert set(replies) == {52, 53, 54}, replies
+        assert replies[53]["error"]["code"] == -32800, replies
+        assert replies[52]["result"] == replies[54]["result"], replies
         reference_source = [
             "module main",
             "import second as deps",
