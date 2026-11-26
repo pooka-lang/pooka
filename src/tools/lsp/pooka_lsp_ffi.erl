@@ -177,6 +177,7 @@ dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}=Request, starting, 
                         tokenModifiers => [<<"declaration">>,<<"readonly">>]}},
         codeLensProvider => #{resolveProvider => false},
         executeCommandProvider => #{commands => [<<"pooka.runTest">>]},
+        workspace => #{workspaceFolders => #{supported => true,changeNotifications => true}},
         workspaceSymbolProvider => true, referencesProvider => true, documentHighlightProvider => true,
         renameProvider => case get(lsp_versioned_edits) of
             true -> #{prepareProvider => true};
@@ -188,6 +189,13 @@ dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}=Request, starting, 
 dispatch(#{<<"method">> := <<"initialized">>}, running, Docs, R, T, {Worker,Navigator,true}) ->
     register_file_watch(),
     loop(running,Docs,R,T,{Worker,Navigator,false});
+dispatch(#{<<"method">> := <<"workspace/didChangeWorkspaceFolders">>,
+           <<"params">> := #{<<"event">> := #{<<"added">> := Added,<<"removed">> := Removed}}},
+         running, Docs, R, T, Analyzer) when is_list(Added), is_list(Removed) ->
+    {_,Roots} = get(lsp_workspace_roots),
+    Next = lists:usort(folder_paths(Added) ++ (Roots -- folder_paths(Removed))),
+    put(lsp_workspace_roots,{explicit,Next}),
+    changed(Docs,R,T,Analyzer);
 dispatch(#{<<"method">> := <<"workspace/didChangeWatchedFiles">>,
            <<"params">> := #{<<"changes">> := Changes}}, running, Docs, R, T, Analyzer)
   when is_list(Changes), Changes =/= [] ->
@@ -367,19 +375,24 @@ semantic_data(Tokens,Source) ->
 
 workspace_roots(Request) ->
     Params = maps:get(<<"params">>,Request,#{}),
-    Folders = case maps:get(<<"workspaceFolders">>,Params,[]) of
-        Entries when is_list(Entries) -> [Uri || #{<<"uri">> := Uri} <- Entries];
-        _ -> []
-    end,
-    [Path || Uri <- [maps:get(<<"rootUri">>,Params,null)|Folders], is_binary(Uri),
-             {ok,Path} <- [file_path(Uri)]].
+    case maps:get(<<"workspaceFolders">>,Params,null) of
+        Entries when is_list(Entries) -> {explicit,folder_paths(Entries)};
+        _ -> {fallback,folder_paths([#{<<"uri">> => maps:get(<<"rootUri">>,Params,null)}])}
+    end.
 
-workspace_symbols(Query,Roots,Docs) ->
+folder_paths(Entries) ->
+    lists:usort([Path || #{<<"uri">> := Uri} <- Entries, is_binary(Uri),
+                        {ok,Path} <- [file_path(Uri)]]).
+
+workspace_symbols(Query,{Mode,Roots},Docs) ->
     Open = [{Uri,Path,Source} || {Uri,{Path,_,Source}} <- maps:to_list(Docs)],
     Overlays = [{Path,Source} || {_,Path,Source} <- Open],
     Uris = maps:from_list([{Path,Uri} || {Uri,Path,_} <- Open]),
-    Probes = [filename:join(Root,<<"workspace.pooka">>) || Root <- Roots] ++
-             [Path || {_,Path,_} <- Open],
+    FolderProbes = [filename:join(Root,<<"workspace.pooka">>) || Root <- Roots],
+    Probes = case Mode of
+        explicit -> FolderProbes;
+        fallback -> FolderProbes ++ [Path || {_,Path,_} <- Open]
+    end,
     Files = 'tools@lsp@symbols':workspace(Probes,Overlays),
     Folded = string:casefold(Query),
     lists:sublist(lists:append([

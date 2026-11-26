@@ -655,6 +655,21 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
         assert {item["containerName"] for item in values} >= {"main", "dependency", "second"}, response
         unsaved, = [item for item in values if item["location"]["uri"] == uri]
         assert unsaved["location"]["range"]["start"] == {"line": 1, "character": 0}, response
+        folder = {"uri": isolated.as_uri(), "name": "another project"}
+        initial_folder = {"uri": root.as_uri(), "name": "workspace"}
+        send("workspace/didChangeWorkspaceFolders", {
+            "event": {"added": [initial_folder, folder], "removed": []},
+        })
+        assert events.get(timeout=15)["params"]["uri"] == uri
+        send("workspace/symbol", {"query": "main.main"}, 49)
+        added = events.get(timeout=15)["result"]
+        assert {item["location"]["uri"] for item in added} == {other.resolve().as_uri()}, added
+        send("workspace/didChangeWorkspaceFolders", {
+            "event": {"added": [], "removed": [folder]},
+        })
+        assert events.get(timeout=15)["params"]["uri"] == uri
+        send("workspace/symbol", {"query": "main.main"}, 50)
+        assert events.get(timeout=15)["result"] == []
         reference_source = [
             "module main",
             "import second as deps",
