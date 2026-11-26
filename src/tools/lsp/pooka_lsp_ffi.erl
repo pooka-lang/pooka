@@ -124,6 +124,8 @@ definition_queue(Server,PreviousRevision) ->
 
 navigation_work({workspace_symbols,Query,Roots,Docs}) ->
     workspace_symbols(Query,Roots,Docs);
+navigation_work({call_hierarchy,Incoming,Data,Docs}) ->
+    hierarchy_calls(Incoming,Data,Docs);
 navigation_work({document,Query,Uri,Position,Docs}) ->
     navigation(Query,Uri,Position,Docs).
 
@@ -200,6 +202,7 @@ dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}=Request, starting, 
         codeLensProvider => #{resolveProvider => false},
         executeCommandProvider => #{commands => [<<"pooka.runTest">>]},
         workspace => #{workspaceFolders => #{supported => true,changeNotifications => true}},
+        callHierarchyProvider => true,
         workspaceSymbolProvider => true, referencesProvider => true, documentHighlightProvider => true,
         renameProvider => case get(lsp_versioned_edits) of
             true -> #{prepareProvider => true};
@@ -260,6 +263,12 @@ dispatch(#{<<"method">> := <<"textDocument/didSave">>}, running, Docs, R, T, Ana
 dispatch(#{<<"method">> := <<"textDocument/didClose">>,
            <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri}}}, running, Docs, R, T, Analyzer) ->
     publish(Uri,null,[]), changed(maps:remove(Uri,Docs),R,T,Analyzer);
+dispatch(#{<<"method">> := Method, <<"id">> := Id,
+           <<"params">> := #{<<"item">> := #{<<"data">> := Data}}}, running, Docs, R, T, Analyzer)
+  when Method =:= <<"callHierarchy/incomingCalls">>; Method =:= <<"callHierarchy/outgoingCalls">> ->
+    {_,Navigator,_} = Analyzer,
+    enqueue_navigation(Navigator,R,Id,{call_hierarchy,Method =:= <<"callHierarchy/incomingCalls">>,Data,Docs}),
+    loop(running,Docs,R,T,Analyzer);
 dispatch(#{<<"method">> := <<"workspace/symbol">>, <<"id">> := Id,
            <<"params">> := #{<<"query">> := Query}}, running, Docs, R, T, Analyzer)
   when is_binary(Query) ->
@@ -319,7 +328,7 @@ dispatch(#{<<"method">> := <<"textDocument/references">>, <<"id">> := Id,
 dispatch(#{<<"method">> := Method, <<"id">> := Id,
            <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri},
                             <<"position">> := Position}}, running, Docs, R, T, Analyzer)
-  when Method =:= <<"textDocument/typeDefinition">>; Method =:= <<"textDocument/documentHighlight">>;
+  when Method =:= <<"textDocument/prepareCallHierarchy">>; Method =:= <<"textDocument/typeDefinition">>; Method =:= <<"textDocument/documentHighlight">>;
        Method =:= <<"textDocument/definition">>; Method =:= <<"textDocument/hover">>;
        Method =:= <<"textDocument/completion">>;
        Method =:= <<"textDocument/signatureHelp">>;
@@ -660,10 +669,49 @@ execute_navigation(<<"textDocument/hover">>,Path,Source,Offset,Overlays,_) ->
         {ok,Markdown} -> #{contents => #{kind => <<"markdown">>,value => Markdown}};
         {error,_} -> null
     end;
+execute_navigation(<<"textDocument/prepareCallHierarchy">>,Path,_,Offset,Overlays,Open) ->
+    case 'tools@lsp@call_hierarchy':prepare(Path,Offset,Overlays) of
+        {ok,Callable} ->
+            case hierarchy_item(Path,Callable,Open) of {true,Item} -> [Item]; false -> [] end;
+        {error,_} -> []
+    end;
 execute_navigation(<<"textDocument/typeDefinition">>,Path,Source,Offset,Overlays,Open) ->
     navigation_target('tools@lsp@definition':type_target(Path,Source,Offset,Overlays),Open);
 execute_navigation(<<"textDocument/definition">>,Path,Source,Offset,Overlays,Open) ->
     navigation_target('tools@lsp@definition':target(Path,Source,Offset,Overlays),Open).
+
+hierarchy_calls(Incoming,#{<<"origin">> := Origin,<<"path">> := Path,<<"offset">> := Offset},Docs)
+  when is_binary(Origin), is_binary(Path), is_integer(Offset), Offset >= 0 ->
+    Open = maps:from_list([{P,{Uri,Source}} || {Uri,{P,_,Source}} <- maps:to_list(Docs)]),
+    Overlays = [{P,Source} || {P,{_,Source}} <- maps:to_list(Open)],
+    Calls = 'tools@lsp@call_hierarchy':calls(Origin,Path,Offset,Incoming,Overlays),
+    lists:filtermap(fun({calls,Callable,Sites}) ->
+        case hierarchy_item(Origin,Callable,Open) of
+            {true,Item} ->
+                Ranges = lists:filtermap(fun({site,SitePath,Span}) ->
+                    case related_source(SitePath,Open) of
+                        {ok,_,Text} -> {true,span_range(Span,Text)};
+                        error -> false
+                    end
+                end,Sites),
+                Key = case Incoming of true -> from; false -> to end,
+                {true,#{Key => Item,fromRanges => Ranges}};
+            false -> false
+        end
+    end,Calls);
+hierarchy_calls(_,_,_) -> [].
+
+hierarchy_item(Origin,{callable,Name,Kind,{site,Path,{span,{position,_,_,Start},_}=Selection},Range},Open) ->
+    case related_source(Path,Open) of
+        {ok,Uri,Text} ->
+            {true,#{name => Name,kind => Kind,uri => Uri,
+                    range => span_range(Range,Text),selectionRange => span_range(Selection,Text),
+                    data => #{origin => Origin,path => Path,offset => Start}}};
+        error -> false
+    end.
+
+span_range({span,{position,_,_,Start},{position,_,_,End}},Text) ->
+    offset_range(Start,End,Text).
 
 navigation_target(Result,Open) ->
     case Result of

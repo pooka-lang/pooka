@@ -35,17 +35,7 @@ pub fn lookup(
   offset: Int,
   overlays: List(#(String, String)),
 ) -> Result(Lookup, Nil) {
-  use #(graph, checked) <- result.try(definition.project_report(path, overlays))
-  let typed =
-    definition.typed_report(checked)
-    |> result.map(fn(report) { report.modules })
-    |> result.unwrap([])
-  let uses =
-    checked.files
-    |> list.filter(fn(file) {
-      package.owner(file.path, graph.root.name) == graph.root.name
-    })
-    |> list.flat_map(fn(file) { file_references(graph, checked, file, typed) })
+  use #(_, uses) <- result.try(workspace_index(path, overlays))
   use target <- result.try(
     list.find(uses, fn(use_) { at(use_.site, path, offset) })
     |> result.map(fn(use_) { use_.target })
@@ -66,6 +56,21 @@ pub fn lookup(
       |> list.filter(fn(use_) { use_.target == target && use_.site != target })
       |> list.unique,
   ))
+}
+
+pub fn workspace_index(path: String, overlays: List(#(String, String))) {
+  use #(graph, checked) <- result.try(definition.project_report(path, overlays))
+  let typed =
+    definition.typed_report(checked)
+    |> result.map(fn(report) { report.modules })
+    |> result.unwrap([])
+  let uses =
+    checked.files
+    |> list.filter(fn(file) {
+      package.owner(file.path, graph.root.name) == graph.root.name
+    })
+    |> list.flat_map(fn(file) { file_references(graph, checked, file, typed) })
+  Ok(#(checked, uses))
 }
 
 pub fn locations(
