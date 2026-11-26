@@ -512,6 +512,15 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
             "uri": external_uri,
             "range": {"start": {"line": 4, "character": 14}, "end": {"line": 4, "character": 18}},
         }, response
+        send("textDocument/typeDefinition", {
+            "textDocument": {"uri": uri},
+            "position": {"line": 2, "character": imported_receiver.rindex("item")},
+        }, 51)
+        type_location = events.get(timeout=15)["result"]
+        assert type_location == {
+            "uri": external_uri,
+            "range": {"start": {"line": 4, "character": 6}, "end": {"line": 4, "character": 11}},
+        }, type_location
         send("textDocument/didClose", {"textDocument": {"uri": external_uri}})
         assert events.get(timeout=10)["params"]["uri"] == external_uri
         assert events.get(timeout=15)["params"]["uri"] == uri

@@ -6,6 +6,7 @@ import builder/check
 import builder/infer
 import compiler/analysis/resolve
 import compiler/compiler
+import compiler/lexer/lexer
 import compiler/lexer/token
 import compiler/parser/ast
 import compiler/typesystem/monotype
@@ -20,7 +21,7 @@ import gleam/string
 import project/package
 import project/project
 import tools/lsp/analysis
-import utilities/location.{type Span}
+import utilities/location.{type Span, new}
 
 pub fn target(
   path: String,
@@ -67,15 +68,7 @@ pub fn hover(
   )
   let state = module.inferred.state
   let start = lexeme.span.start.byte_offset
-  let end = lexeme.span.end.byte_offset
-  let expression =
-    unify.expression_types(state, module.path)
-    |> list.filter(fn(item) {
-      item.0 <= start && item.1 == end && item.2 != monotype.ErrorType
-    })
-    |> list.sort(fn(a, b) { int.compare(b.0, a.0) })
-    |> list.first
-    |> result.map(fn(item) { item.2 })
+  let expression = expression_at(module, lexeme.span)
   let declared =
     list.find(module.inferred.functions, fn(function) {
       function.name.span == lexeme.span
@@ -153,6 +146,65 @@ fn member_documentation(
       ast.ConstructorMember(_) -> Error(Nil)
     }
   })
+}
+
+pub fn type_target(
+  path: String,
+  source: String,
+  offset: Int,
+  overlays: List(#(String, String)),
+) -> Result(#(String, Int, Int), Nil) {
+  use lexeme <- result.try(
+    list.find(lexer.lex(source).tokens, fn(lexeme) {
+      case lexeme.token {
+        token.Name(_) | token.UpperName(_) -> contains(lexeme.span, offset)
+        _ -> False
+      }
+    }),
+  )
+  use #(_, checked) <- result.try(project_report(path, overlays))
+  use typed <- result.try(typed_report(checked))
+  use module <- result.try(
+    list.find(typed.modules, fn(module) {
+      absolute_path(checked, module.path) == path
+    }),
+  )
+  use type_ <- result.try(expression_at(module, lexeme.span))
+  let state = module.inferred.state
+  use location <- result.try(case type_ {
+    monotype.Nominal(owner, name, kind, _) -> {
+      let identity = #(owner, name)
+      case kind {
+        monotype.ClassKind | monotype.ActorKind ->
+          unify.class(state, identity)
+          |> result.map(fn(value) { new(value.path, value.source.name.span) })
+        monotype.InterfaceKind ->
+          unify.interface(state, identity)
+          |> result.map(fn(value) { new(value.path, value.source.name.span) })
+        monotype.EnumKind ->
+          unify.enum(state, identity)
+          |> result.map(fn(value) { new(value.path, value.source.name.span) })
+      }
+    }
+    _ -> Error(Nil)
+  })
+  Ok(#(
+    absolute_path(checked, location.path),
+    location.span.start.byte_offset,
+    location.span.end.byte_offset,
+  ))
+}
+
+fn expression_at(module: infer.TypedModule, span: Span) {
+  unify.expression_types(module.inferred.state, module.path)
+  |> list.filter(fn(item) {
+    item.0 <= span.start.byte_offset
+    && item.1 == span.end.byte_offset
+    && item.2 != monotype.ErrorType
+  })
+  |> list.sort(fn(a, b) { int.compare(b.0, a.0) })
+  |> list.first
+  |> result.map(fn(item) { item.2 })
 }
 
 fn typed_member_target(

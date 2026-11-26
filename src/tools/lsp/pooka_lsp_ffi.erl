@@ -169,7 +169,7 @@ dispatch(#{<<"method">> := <<"initialize">>, <<"id">> := Id}=Request, starting, 
     put(lsp_versioned_edits,supports_versioned_edits(Request)),
     put(lsp_workspace_roots,workspace_roots(Request)),
     reply(Id,#{capabilities => #{positionEncoding => <<"utf-16">>,
-        documentFormattingProvider => true, documentSymbolProvider => true, definitionProvider => true, hoverProvider => true, completionProvider => #{triggerCharacters => [<<".">>]},
+        documentFormattingProvider => true, documentSymbolProvider => true, definitionProvider => true, typeDefinitionProvider => true, hoverProvider => true, completionProvider => #{triggerCharacters => [<<".">>]},
         signatureHelpProvider => #{triggerCharacters => [<<"(">>,<<",">>]},
         codeActionProvider => #{codeActionKinds => [<<"quickfix">>]},
         semanticTokensProvider => #{full => true,
@@ -290,7 +290,7 @@ dispatch(#{<<"method">> := <<"textDocument/references">>, <<"id">> := Id,
 dispatch(#{<<"method">> := Method, <<"id">> := Id,
            <<"params">> := #{<<"textDocument">> := #{<<"uri">> := Uri},
                             <<"position">> := Position}}, running, Docs, R, T, Analyzer)
-  when Method =:= <<"textDocument/documentHighlight">>;
+  when Method =:= <<"textDocument/typeDefinition">>; Method =:= <<"textDocument/documentHighlight">>;
        Method =:= <<"textDocument/definition">>; Method =:= <<"textDocument/hover">>;
        Method =:= <<"textDocument/completion">>;
        Method =:= <<"textDocument/signatureHelp">>;
@@ -631,8 +631,13 @@ execute_navigation(<<"textDocument/hover">>,Path,Source,Offset,Overlays,_) ->
         {ok,Markdown} -> #{contents => #{kind => <<"markdown">>,value => Markdown}};
         {error,_} -> null
     end;
+execute_navigation(<<"textDocument/typeDefinition">>,Path,Source,Offset,Overlays,Open) ->
+    navigation_target('tools@lsp@definition':type_target(Path,Source,Offset,Overlays),Open);
 execute_navigation(<<"textDocument/definition">>,Path,Source,Offset,Overlays,Open) ->
-    case 'tools@lsp@definition':target(Path,Source,Offset,Overlays) of
+    navigation_target('tools@lsp@definition':target(Path,Source,Offset,Overlays),Open).
+
+navigation_target(Result,Open) ->
+    case Result of
         {ok,{Target,Start,End}} ->
             case navigation_location(Target,Start,End,Open) of
                 {true,Location} -> Location;
