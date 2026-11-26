@@ -4,6 +4,7 @@
 
 ### LSP
 
+- Show incoming and outgoing calls for resolved functions and methods (#110).
 - Cancel queued editor navigation and completion requests when the client no longer needs them (#109).
 - Go to the declaration of a value’s inferred nominal type (#108).
 - Refresh workspace symbol search when editor folders are added or removed (#107).

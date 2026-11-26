@@ -741,6 +741,27 @@ with tempfile.TemporaryDirectory(prefix="pooka lsp ") as directory:
             reference_source[4].index("selected"), reference_source[4].rindex("selected"),
         }, response
         assert all(item["range"]["start"]["line"] == 4 for item in highlights), response
+        for column, method, key, expected_name in [
+            (0, "callHierarchy/outgoingCalls", "to", "value"),
+            (reference_source[3].index("selected"), "callHierarchy/incomingCalls", "from", "use_value"),
+        ]:
+            send("textDocument/prepareCallHierarchy", {
+                "textDocument": {"uri": uri},
+                "position": {"line": 3, "character": column},
+            }, 55)
+            prepared = events.get(timeout=15)
+            item, = prepared["result"]
+            assert prepared["id"] == 55, prepared
+            send(method, {"item": item}, 56)
+            response = events.get(timeout=15)
+            entry, = response["result"]
+            assert response["id"] == 56 and entry[key]["name"] == expected_name, response
+            assert {span["start"]["character"] for span in entry["fromRanges"]} == {
+                reference_source[3].index("deps.value") + len("deps."),
+                reference_source[3].index("selected"),
+            }, response
+            expected_uri = uri if key == "from" else second.resolve().as_uri()
+            assert entry[key]["uri"] == expected_uri, response
         rename_position = {"line": 3, "character": reference_source[3].index("selected")}
         rename_params = {"textDocument": {"uri": uri}, "position": rename_position}
         send("textDocument/prepareRename", rename_params, 41)
