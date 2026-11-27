@@ -271,6 +271,7 @@ pub fn check_with_exports(
   exports: Exports,
 ) -> List(Diagnostic) {
   resolve_with_exports(module, path, exports).diagnostics
+  |> list.filter(fn(item) { !is_unused_binding(item) })
 }
 
 /// Resolve names with checked dependency exports and retain use information for
@@ -295,7 +296,11 @@ pub fn editor_local_warnings(
   bad_spans: List(Span),
 ) -> List(Diagnostic) {
   resolve_mode(module, path, dict.new(), Some(bad_spans)).diagnostics
-  |> list.filter(fn(item) { item.id == "analysis.unused_local_binding" })
+  |> list.filter(is_unused_binding)
+}
+
+pub fn is_unused_binding(item: Diagnostic) -> Bool {
+  item.id == "analysis.unused_local_binding"
 }
 
 fn resolve_mode(
@@ -305,9 +310,13 @@ fn resolve_mode(
   editor_errors: Option(List(Span)),
 ) -> Resolution {
   let events = resolve_events(module, path, exports, editor_errors)
+  let diagnostics = issues(events)
+  let warnings = case editor_errors, diagnostic.has_errors(diagnostics) {
+    None, True -> []
+    _, _ -> unused_bindings(events, path)
+  }
   Resolution(
-    list.append(issues(events), unused_bindings(events, path))
-      |> diagnostic.sort,
+    list.append(diagnostics, warnings) |> diagnostic.sort,
     events
       |> list.filter_map(fn(event) {
         case event {
@@ -908,16 +917,20 @@ fn track_binding(
   block: Span,
 ) -> #(Scope, List(Event)) {
   let eligible = case scope.editor_errors {
-    None -> False
+    None -> True
     Some(errors) ->
       !list.any(errors, fn(error) {
         error.start.byte_offset >= block.start.byte_offset
         && error.start.byte_offset <= block.end.byte_offset
       })
   }
-  case eligible {
+  let names = ast.pattern_bindings(pattern)
+  let distinct = names |> list.map(fn(name) { name.name }) |> list.unique
+  // Duplicate bindings already have a structural error. Neither occurrence
+  // should produce a separate unused-binding warning.
+  case eligible && list.length(names) == list.length(distinct) {
     False -> #(scope, [])
-    True -> #(scope, list.map(ast.pattern_bindings(pattern), LocalBinding))
+    True -> #(scope, list.map(names, LocalBinding))
   }
 }
 
@@ -1633,9 +1646,9 @@ fn reference(name: String, namespace: Namespace, scope: Scope) -> List(Event) {
   let member = namespace == ValueName && set.contains(scope.members, name)
   case local, member {
     True, _ ->
-      case scope.editor_errors, dict.get(scope.local_spans, name) {
-        Some(_), Ok(span) -> [LocalRead(span)]
-        _, _ -> []
+      case dict.get(scope.local_spans, name) {
+        Ok(span) -> [LocalRead(span)]
+        Error(_) -> []
       }
 
     False, True -> private_member_use(name, scope)

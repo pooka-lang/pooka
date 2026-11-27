@@ -211,10 +211,18 @@ pub fn with_exports(file: Checked, exports: resolve.Exports) -> Checked {
       resolve.resolve_with_exports(file.parsed.module, file.path, exports)
     _, _ -> resolve.Resolution([], [])
   }
+  let diagnostics = case diagnostic.has_errors(file.structural_diagnostics) {
+    True ->
+      list.filter(resolved.diagnostics, fn(item) {
+        !resolve.is_unused_binding(item)
+      })
+    False -> resolved.diagnostics
+  }
   Checked(
     ..file,
     uses: resolved.uses,
-    diagnostics: list.append(file.structural_diagnostics, resolved.diagnostics)
+    diagnostics: list.append(file.structural_diagnostics, diagnostics)
+      |> list.unique
       |> diagnostic.sort,
   )
 }

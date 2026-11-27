@@ -284,3 +284,13 @@ pub fn unused_private_member_snapshot_test() {
   |> support.render_all(source)
   |> birdie.snap(title: "analysis: unused private member")
 }
+
+pub fn saved_and_editor_sources_report_the_same_unused_bindings_test() {
+  let source =
+    "module main\nmain() {\n  let #(unused, used) = #(1, 2)\n  let _ignored = 3\n  fn() { used }\n}"
+  let saved = compiler.check_source(support.path, source)
+  let editor = compiler.check_editor_source(support.path, source)
+  assert saved.diagnostics == editor.diagnostics
+  let assert [warning] = saved.diagnostics
+  assert warning.id == "analysis.unused_local_binding"
+}
