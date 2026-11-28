@@ -2341,6 +2341,9 @@ fn bit_array(
         })
       let #(value, types, encoding_bindings, context) = case encoding {
         Error(Nil) -> #(value, types, [], context)
+        // Pooka strings already hold UTF-8 bytes. Erlang can append them as
+        // an ordinary binary segment without transcoding.
+        Ok("utf8") -> #(value, f.Sequence([f.Atom("binary")]), [], context)
         Ok(encoding) -> {
           let endian =
             list.find_map(segment.options, fn(option) {

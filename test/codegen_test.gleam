@@ -625,3 +625,22 @@ pub fn result_propagation_in_match_fallbacks_stays_in_its_source_callable_test()
     )
     == "#(Error(\"zero\"), Ok([]), 42)\n"
 }
+
+pub fn utf8_string_segments_do_not_call_the_runtime_encoder_test() {
+  let syntax =
+    support.parse(
+      "module main\njoin(head: BitArray, text: String) { <<head:bits, text:utf8>> }",
+    )
+  let assert Ok(inferred) =
+    module_infer.infer(syntax, dict.new(), unify.new(), support.path)
+  let assert Ok(typed) = typed_ast.checked(syntax, inferred, support.path)
+  let assert Ok(generated) = erlang.generate(typed, "app", "main", dict.new())
+  let forms = beam.pretty(generated.forms)
+  assert string.contains(forms, "/binary")
+  assert !string.contains(forms, ":encode(")
+  assert output(
+      "codegen_utf8_binary_segment",
+      "join(head: BitArray, text: String) { <<head:bits, text:utf8>> }\nmain() { echo join(<<0>>, \"é😀\") }",
+    )
+    == "<<0, 195, 169, 240, 159, 152, 128>>\n"
+}

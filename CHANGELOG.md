@@ -22,6 +22,7 @@
 
 ### Fixed
 
+- Emit UTF-8 string segments directly as Erlang binary segments (#118).
 - Report the same unused local bindings in `pooka check` and the editor for saved, valid files.
 - Show the callee's type when a value cannot be called (#90).
 - Point to the receiver and show its type when it has no members (#91).
