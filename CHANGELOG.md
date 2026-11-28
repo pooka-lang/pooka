@@ -26,6 +26,7 @@
 - Show the callee's type when a value cannot be called (#90).
 - Point to the receiver and show its type when it has no members (#91).
 - Point to the original binding when an assignment targets an immutable local or parameter (#92).
+- Keep tail calls in functions that propagate results through direct bindings (#117).
 
 ## 0.4.0 - 2026-11-23
 

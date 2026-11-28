@@ -280,6 +280,30 @@ pub fn tail_recursive_calls_do_not_need_propagation_handlers_test() {
     == "100000\n"
 }
 
+pub fn direct_result_propagation_preserves_tail_calls_test() {
+  let source =
+    "check(value: Int) -> Result(Int, String) { match value < 0 { True -> Error(\"stop\")\nFalse -> Ok(value) } }\ncount(n: Int, total: Int) -> Result(Int, String) { match n { 0 -> Ok(total)\n_ -> { let step = check(total + 1)?\nlet next = check(step + 1)?\ncount(n - 1, next) } } }\nmain() { echo #(count(100000, 0), count(1, -2)) }"
+  let syntax = support.parse("module main\n" <> source)
+  let assert Ok(inferred) =
+    module_infer.infer(syntax, dict.new(), unify.new(), support.path)
+  let assert Ok(typed) = typed_ast.checked(syntax, inferred, support.path)
+  let assert Ok(generated) = erlang.generate(typed, "app", "main", dict.new())
+  let forms = beam.pretty(generated.forms)
+  assert !string.contains(forms, "pooka_return")
+  assert !string.contains(forms, ":propagate(")
+  assert string.contains(forms, "case")
+  assert output("codegen_propagation_tail_calls", source)
+    == "#(Ok(200000), Error(\"stop\"))\n"
+}
+
+pub fn embedded_propagation_keeps_the_callable_boundary_test() {
+  assert output(
+      "codegen_embedded_propagation",
+      "check(value: Int) -> Result(Int, String) { match value < 0 { True -> Error(\"stop\")\nFalse -> Ok(value) } }\ncombine(value: Int) -> Result(Int, String) { let first = check(value)?\nOk(first + check(first - 1)?) }\nmain() { echo #(combine(2), combine(0), combine(-1)) }",
+    )
+    == "#(Ok(3), Error(\"stop\"), Error(\"stop\"))\n"
+}
+
 pub fn compiled_test_blocks_can_access_private_helpers_test() {
   use directory <- support.with_directory("codegen_test_blocks")
   support.write(

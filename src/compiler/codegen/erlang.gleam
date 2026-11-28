@@ -1648,12 +1648,12 @@ fn runtime(
   ))
 }
 
-/// Catch only this callable's tagged Result propagation. Nested closures
-/// establish their own boundary, so an error cannot return from the wrong
-/// function.
+/// Keep direct propagation in tail position. If an embedded propagation
+/// remains, catch this callable's tagged return. Nested closures own their
+/// own boundaries.
 ///
 /// ```text
-/// read()? -> runtime propagation; throw({pooka_return, Error}) is caught here
+/// let value = read()? -> case read() of {ok, V} -> ...; {error,_}=E -> E end
 /// ```
 ///
 /// Erlang abstract format: https://www.erlang.org/doc/apps/erts/absform.html#expressions.
@@ -1666,20 +1666,24 @@ fn return_boundary(
   case propagation.block(source) {
     False -> f.node("block", line, [f.Sequence(body)])
     True ->
-      f.node("try", line, [
-        f.Sequence(body),
-        f.Sequence([]),
-        f.Sequence([
-          catch_clause(
-            f.node("tuple", line, [
-              f.Sequence([f.atom("pooka_return", line), value]),
+      case propagation.lower(body) {
+        Some(body) -> f.node("block", line, [f.Sequence(body)])
+        None ->
+          f.node("try", line, [
+            f.Sequence(body),
+            f.Sequence([]),
+            f.Sequence([
+              catch_clause(
+                f.node("tuple", line, [
+                  f.Sequence([f.atom("pooka_return", line), value]),
+                ]),
+                [value],
+                line,
+              ),
             ]),
-            [value],
-            line,
-          ),
-        ]),
-        f.Sequence([]),
-      ])
+            f.Sequence([]),
+          ])
+      }
   }
 }
 
