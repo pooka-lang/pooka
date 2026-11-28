@@ -112,11 +112,13 @@ fn expression(value: ast.Expression) -> Bool {
 /// tail position. Embedded propagation keeps the existing throw boundary.
 ///
 /// https://www.erlang.org/doc/apps/erts/absform.html#expressions
-pub fn lower(body: List(f.Term)) -> Option(List(f.Term)) {
-  let #(lowered, _) = lower_body(body, 0)
+pub fn lower(body: List(f.Term), next: Int) -> Option(#(List(f.Term), Int)) {
+  // Share numbering with the emitter so nested closures cannot capture an
+  // enclosing propagation variable in a generated case pattern.
+  let #(lowered, next) = lower_body(body, next)
   case list.any(lowered, unhandled) {
     True -> None
-    False -> Some(lowered)
+    False -> Some(#(lowered, next))
   }
 }
 

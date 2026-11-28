@@ -668,3 +668,11 @@ pub fn utf8_string_segments_do_not_call_the_runtime_encoder_test() {
     )
     == "<<0, 195, 169, 240, 159, 152, 128>>\n"
 }
+
+pub fn propagation_names_stay_fresh_across_nested_closures_test() {
+  assert output(
+      "codegen_nested_closure_propagation",
+      "read(value: Int) -> Result(Int, String) {\n  match value < 0 { True -> Error(\"negative\")\n    False -> Ok(value) }\n}\n\nsum(value: Int, last: Int) -> Result(Int, String) {\n  let first = read(1)?\n  let second = fn(value: Int) -> Result(Int, String) {\n    let middle = read(value)?\n    let third = fn(last: Int) -> Result(Int, String) {\n      let inner = read(last)?\n      Ok(first + middle + inner)\n    }\n    third(last)\n  }\n  second(value)\n}\n\nmain() { echo #(sum(3, 8), sum(3, -1)) }\n",
+    )
+    == "#(Ok(12), Error(\"negative\"))\n"
+}
