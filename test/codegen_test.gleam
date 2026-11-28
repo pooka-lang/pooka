@@ -676,3 +676,41 @@ pub fn propagation_names_stay_fresh_across_nested_closures_test() {
     )
     == "#(Ok(12), Error(\"negative\"))\n"
 }
+
+pub fn nested_result_operand_keeps_its_continuation_in_tail_position_test() {
+  let source =
+    "check(value: Int) -> Result(Nil, String) { match value < 0 { True -> Error(\"negative\")\nFalse -> Ok(Nil) } }\nnested(values: List(Int), total: Int) -> Result(Int, String) { match values { [] -> Ok(total)\n[value, ..rest] -> { let doubled = match value % 2 { 0 -> { let _ = check(value)?\nOk(value * 2) }\n_ -> Ok(value) }?\nlet _ = check(doubled)?\nnested(rest, total + doubled) } } }\nmain() { echo #(nested([2, 3, 4], 0), nested([-2, 4], 0), nested([-3, 4], 0)) }"
+  let syntax = support.parse("module main\n" <> source)
+  let assert Ok(inferred) =
+    module_infer.infer(syntax, dict.new(), unify.new(), support.path)
+  let assert Ok(typed) = typed_ast.checked(syntax, inferred, support.path)
+  let assert Ok(generated) = erlang.generate(typed, "app", "main", dict.new())
+  let forms = beam.pretty(generated.forms)
+  let compact = forms |> string.replace("\n", "") |> string.replace(" ", "")
+  assert string.contains(compact, "casetry")
+  assert list.length(string.split(forms, ":propagate(")) == 2
+  assert output("codegen_nested_result_operand", source)
+    == "#(Ok(15), Error(\"negative\"), Error(\"negative\"))\n"
+}
+
+pub fn ordinary_binding_distinguishes_returned_errors_from_propagation_test() {
+  let source =
+    "check(value: Int) -> Result(Int, String) { match value < 0 { True -> Error(\"early\")\nFalse -> Ok(value) } }\nwork(value: Int) -> Result(Int, String) { let ordinary = { let _ = check(value)?\nError(\"ordinary\") }\nmatch ordinary { Error(\"ordinary\") -> Ok(42)\n_ -> Ok(0) } }\nmain() { echo #(work(1), work(-1)) }"
+  let syntax = support.parse("module main\n" <> source)
+  let assert Ok(inferred) =
+    module_infer.infer(syntax, dict.new(), unify.new(), support.path)
+  let assert Ok(typed) = typed_ast.checked(syntax, inferred, support.path)
+  let assert Ok(generated) = erlang.generate(typed, "app", "main", dict.new())
+  let forms = beam.pretty(generated.forms)
+  assert string.contains(forms, "PropagationValue")
+  assert output("codegen_ordinary_binding_propagation", source)
+    == "#(Ok(42), Error(\"early\"))\n"
+}
+
+pub fn deferred_match_fallback_can_propagate_after_it_is_bound_test() {
+  assert output(
+      "codegen_delayed_match_propagation",
+      "allowed(n: Int) -> Bool { n == 0 }\ncheck(n: Int) -> Result(Int, String) { match n < 0 { True -> Error(\"negative\")\nFalse -> Ok(n) } }\nparse(n: Int) -> Result(Int, String) { match n { _ if allowed(n) -> Ok(0)\n_ -> { let value = check(n)?\nOk(value) } } }\nmain() { echo #(parse(0), parse(5), parse(-1)) }",
+    )
+    == "#(Ok(0), Ok(5), Error(\"negative\"))\n"
+}

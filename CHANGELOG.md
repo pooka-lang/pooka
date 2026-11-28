@@ -22,6 +22,7 @@
 
 ### Fixed
 
+- Preserve tail calls when a binding contains nested Result propagation (#123).
 - Generate fresh Result propagation variables across nested closures (#121).
 - Emit UTF-8 string segments directly as Erlang binary segments (#118).
 - Report the same unused local bindings in `pooka check` and the editor for saved, valid files.

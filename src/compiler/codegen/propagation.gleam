@@ -109,7 +109,8 @@ fn expression(value: ast.Expression) -> Bool {
 
 /// Rewrite direct propagation in the callable's return position. An early
 /// error returns as a case arm, while the remaining success body stays in
-/// tail position. Embedded propagation keeps the existing throw boundary.
+/// tail position. Propagation inside a Result operand keeps a catch limited
+/// to the operand so its success continuation can still make tail calls.
 ///
 /// https://www.erlang.org/doc/apps/erts/absform.html#expressions
 pub fn lower(body: List(f.Term), next: Int) -> Option(#(List(f.Term), Int)) {
@@ -145,6 +146,8 @@ fn lower_body(body: List(f.Term), next: Int) -> #(List(f.Term), Int) {
               tagged("error", f.variable("_", line), line),
               error,
             ])
+          let #(bindings, operand) =
+            result_operand(bindings, operand, line, suffix)
           let dispatch =
             f.node("case", line, [
               operand,
@@ -156,18 +159,118 @@ fn lower_body(body: List(f.Term), next: Int) -> #(List(f.Term), Int) {
           #(list.append(bindings, [dispatch]), next)
         }
         None ->
-          case rest {
-            [] -> {
-              let #(term, next) = lower_tail(term, next)
-              #([term], next)
+          case embedded_binding(term) {
+            Some(#(pattern, operand, line)) -> {
+              let suffix = int.to_string(next)
+              let #(continuation, next) = lower_body(rest, next + 1)
+              #(
+                [scoped_binding(pattern, operand, continuation, line, suffix)],
+                next,
+              )
             }
-            _ -> {
-              let #(rest, next) = lower_body(rest, next)
-              #([term, ..rest], next)
-            }
+            None ->
+              case rest {
+                [] -> {
+                  let #(term, next) = lower_tail(term, next)
+                  #([term], next)
+                }
+                _ -> {
+                  let #(rest, next) = lower_body(rest, next)
+                  #([term, ..rest], next)
+                }
+              }
           }
       }
   }
+}
+
+/// A nested early return produces the same Error as an unsuccessful Result
+/// operand. Catch it while evaluating that operand, before entering the
+/// success continuation. Only the operand's generated bindings go in the try.
+///
+/// ```erlang
+/// case try Read() catch throw:{pooka_return, E} -> E end of ... end
+/// ```
+/// https://www.erlang.org/doc/apps/erts/absform.html#expressions
+fn result_operand(
+  bindings: List(f.Term),
+  operand: f.Term,
+  line: Int,
+  suffix: String,
+) -> #(List(f.Term), f.Term) {
+  case unhandled(operand) || list.any(bindings, unhandled) {
+    False -> #(bindings, operand)
+    True -> {
+      #(
+        [],
+        catch_return(list.append(bindings, [operand]), line, suffix, fn(error) {
+          error
+        }),
+      )
+    }
+  }
+}
+
+fn embedded_binding(term: f.Term) -> Option(#(f.Term, f.Term, Int)) {
+  case term {
+    // Ordered match lowering binds a fallback fun and calls it later.
+    // A catch around its creation cannot handle the return from its call.
+    f.Tuple([f.Atom("match"), _, _, f.Tuple([f.Atom("fun"), _, ..])]) -> None
+    f.Tuple([f.Atom("match"), f.Integer(line), pattern, operand]) ->
+      case unhandled(operand) {
+        True -> Some(#(pattern, operand, line))
+        False -> None
+      }
+    _ -> None
+  }
+}
+
+// Here the operand can be any type. Tag normal values separately so an Error
+// value that was returned normally is still bound, rather than propagated.
+fn scoped_binding(
+  pattern: f.Term,
+  operand: f.Term,
+  continuation: List(f.Term),
+  line: Int,
+  suffix: String,
+) -> f.Term {
+  let subject =
+    catch_return([tagged("value", operand, line)], line, suffix, fn(error) {
+      tagged("return", error, line)
+    })
+  let value = f.variable("PropagationValue" <> suffix, line)
+  let error = f.variable("PropagationError" <> suffix, line)
+  f.node("case", line, [
+    subject,
+    f.Sequence([
+      f.clause(
+        [tagged("value", value, line)],
+        [f.node("match", line, [pattern, value]), ..continuation],
+        line,
+      ),
+      f.clause([tagged("return", error, line)], [error], line),
+    ]),
+  ])
+}
+
+fn catch_return(
+  body: List(f.Term),
+  line: Int,
+  suffix: String,
+  handle: fn(f.Term) -> f.Term,
+) -> f.Term {
+  let error = f.variable("PropagationCaught" <> suffix, line)
+  let reason = tagged("pooka_return", error, line)
+  let pattern =
+    f.node("tuple", line, [
+      f.Sequence([f.atom("throw", line), reason, f.variable("_", line)]),
+    ])
+  f.node("try", line, [
+    f.Sequence(body),
+    f.Sequence([]),
+    f.Sequence([f.clause([pattern], [handle(error)], line)]),
+    f.Sequence([]),
+  ])
 }
 
 fn tagged(tag: String, value: f.Term, line: Int) -> f.Term {
