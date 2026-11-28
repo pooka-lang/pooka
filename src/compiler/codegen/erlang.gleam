@@ -2861,6 +2861,69 @@ fn initialize_field(
   ))
 }
 
+fn initialize_object(
+  class: nominal.Class,
+  arguments: List(f.Term),
+  state: unify.State,
+  line: Int,
+) -> f.Term {
+  f.node("call", line, [
+    f.atom(initializer(class), line),
+    f.Sequence([class_layout.skeleton(state, class, line), ..arguments]),
+  ])
+}
+
+/// Recognize a constructor that only copies parameters into its own fields,
+/// optionally after a leading super.new call. Map assignments by field name
+/// because handwritten constructors need not follow tuple slot order.
+fn constructor_copies(
+  constructor: ast.Constructor,
+  class: nominal.Class,
+  context: Context,
+) -> Option(#(List(ast.Statement), List(f.Term))) {
+  let #(prefix, assignments) = case constructor.body.statements {
+    [
+      ast.ExpressionStatement(ast.Call(
+        ast.FieldAccess(ast.SuperExpression(_), ast.Name("new", _), _),
+        _,
+        _,
+      )) as first,
+      ..rest
+    ] -> #([first], rest)
+    statements -> #([], statements)
+  }
+  let fields = nominal.own_fields(class)
+  case fields, list.length(assignments) == list.length(fields) {
+    [], _ | _, False -> None
+    _, True -> {
+      use copies <- option.then(
+        option.from_result(
+          list.try_map(assignments, fn(statement) {
+            case statement {
+              ast.ExpressionStatement(ast.Assignment(
+                ast.AssignField(ast.SelfExpression(_), field, _),
+                ast.Assign,
+                ast.Variable(parameter, _),
+                _,
+              )) ->
+                dict.get(context.locals, parameter)
+                |> result.map(fn(value) { #(field.name, value) })
+              _ -> Error(Nil)
+            }
+          }),
+        ),
+      )
+      let copies = dict.from_list(copies)
+      use values <- option.then(
+        option.from_result(
+          list.try_map(fields, fn(field) { dict.get(copies, field.name.name) }),
+        ),
+      )
+      Some(#(prefix, values))
+    }
+  }
+}
+
 /// Emit constructors, method bodies and dispatchers for a checked immutable
 /// class. All readers and writers use class_layout's tuple contract.
 ///
@@ -2966,8 +3029,35 @@ fn class_forms(
     }),
   )
   let context = Context(..context, locals: parameters_context.locals)
-  use #(body, context) <- result.try(block(constructor.body, context))
-  let assert Some(completed) = context.constructing
+  let copies = case class.superclass, defaults {
+    Some(_), [] -> constructor_copies(constructor, class, context)
+    _, _ -> None
+  }
+  use #(body, completed, context) <- result.try(case copies {
+    Some(#(prefix, values)) -> {
+      use #(body, context) <- result.try(case prefix {
+        [] -> Ok(#([], context))
+        _ -> block(ast.Block(prefix, constructor.body.span), context)
+      })
+      let assert Some(receiver) = context.constructing
+      Ok(#(
+        body,
+        class_layout.initialize_own(
+          context.state,
+          class,
+          receiver,
+          values,
+          line,
+        ),
+        context,
+      ))
+    }
+    None -> {
+      use #(body, context) <- result.try(block(constructor.body, context))
+      let assert Some(completed) = context.constructing
+      Ok(#(body, completed, context))
+    }
+  })
   let statements =
     list.flatten([first, implicit_parent, defaults, body, [completed]])
   let constructors = case hierarchy {
@@ -2984,6 +3074,34 @@ fn class_forms(
         list.index_map(list.repeat(Nil, arity), fn(_, index) {
           f.variable("A" <> int.to_string(index), line)
         })
+      // A hierarchy made solely of implicit, fieldless ancestors needs no
+      // initializer calls for a directly constructed object.
+      let #(new_parameters, new_value) = case copies {
+        Some(#([], values)) -> {
+          let empty_ancestors =
+            class_layout.chain(outer.state, class)
+            |> list.take_while(fn(level) {
+              nominal.identity(level) != nominal.identity(class)
+            })
+            |> list.all(fn(level) {
+              nominal.own_fields(level) == [] && !nominal.has_constructor(level)
+            })
+          case empty_ancestors {
+            True -> #(
+              constructor_patterns,
+              class_layout.exact_pattern(outer.state, class, values, line),
+            )
+            False -> #(
+              arguments,
+              initialize_object(class, arguments, outer.state, line),
+            )
+          }
+        }
+        _ -> #(
+          arguments,
+          initialize_object(class, arguments, outer.state, line),
+        )
+      }
       [
         f.node("function", line, [
           f.Atom(initializer(class)),
@@ -2996,19 +3114,7 @@ fn class_forms(
           f.Atom(nominal.function_name(source.name.name, "new")),
           f.Integer(arity),
           f.Sequence([
-            f.clause(
-              arguments,
-              [
-                f.node("call", line, [
-                  f.atom(initializer(class), line),
-                  f.Sequence([
-                    class_layout.skeleton(outer.state, class, line),
-                    ..arguments
-                  ]),
-                ]),
-              ],
-              line,
-            ),
+            f.clause(new_parameters, [new_value], line),
           ]),
         ]),
       ]

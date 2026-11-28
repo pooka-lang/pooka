@@ -22,6 +22,7 @@
 
 ### Fixed
 
+- Build parameter-only subclass fields in one tuple update (#124).
 - Preserve tail calls when a binding contains nested Result propagation (#123).
 - Generate fresh Result propagation variables across nested closures (#121).
 - Emit UTF-8 string segments directly as Erlang binary segments (#118).

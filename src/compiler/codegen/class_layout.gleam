@@ -120,6 +120,33 @@ pub fn write(
   write_path(field_path(state, field), value, replacement, line)
 }
 
+/// Fill this class level at once after its parent has been initialized.
+/// Preserve the extension slot because the receiver may be a descendant.
+///
+/// ```erlang
+/// setelement(2, Parent, {ChildTag, A, B, Extension})
+/// ```
+///
+/// Erlang abstract format: https://www.erlang.org/doc/apps/erts/absform.html#expressions.
+///
+pub fn initialize_own(
+  state: unify.State,
+  class: nominal.Class,
+  receiver: f.Term,
+  values: List(f.Term),
+  line: Int,
+) -> f.Term {
+  let levels = chain(state, class)
+  let path =
+    levels |> list.take(list.length(levels) - 1) |> list.map(extension_index)
+  let current =
+    list.fold(path, receiver, fn(value, index) { element(index, value, line) })
+  let extension = element(extension_index(class), current, line)
+  let initialized =
+    tuple([tag(class, line), ..list.append(values, [extension])], line)
+  write_path(path, receiver, initialized, line)
+}
+
 /// Rebuild each tuple on the path outward after replacing the innermost value. No
 /// existing tuple is mutated.
 ///

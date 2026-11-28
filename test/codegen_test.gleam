@@ -714,3 +714,27 @@ pub fn deferred_match_fallback_can_propagate_after_it_is_bound_test() {
     )
     == "#(Ok(0), Ok(5), Error(\"negative\"))\n"
 }
+
+pub fn simple_subclass_constructors_batch_fields_without_changing_the_layout_test() {
+  let syntax =
+    support.parse(
+      "module main\nclass Root {}\nclass Pair(left: Int, right: Int) is Root\nmain() { Pair(20, 22) }",
+    )
+  let assert Ok(inferred) =
+    module_infer.infer(syntax, dict.new(), unify.new(), support.path)
+  let assert Ok(typed) = typed_ast.checked(syntax, inferred, support.path)
+  let assert Ok(generated) = erlang.generate(typed, "app", "main", dict.new())
+  let forms = beam.pretty(generated.forms)
+  // The reusable initializer replaces the extension once. The direct
+  // constructor builds the completed object without calling that initializer.
+  assert list.length(string.split(forms, "setelement(")) == 2
+  assert string.contains(
+    forms,
+    "{pooka@class@main@Root, {pooka@class@main@Pair,",
+  )
+  assert output(
+      "codegen_batch_subclass",
+      "class Root { let base: Int\nnew(value) { echo value\nself.base = value } }\nclass Pair is Root { let left: Int\nlet right: Int\nnew(a, b) { super.new(10)\nself.right = b\nself.left = a } }\nclass Child is Pair { let last: Int\nnew() { super.new(20, 22)\nself.last = 30 } }\nmain() { let child = Child()\necho #(child.base, child.left, child.right, child.last) }",
+    )
+    == "10\n#(10, 20, 22, 30)\n"
+}
