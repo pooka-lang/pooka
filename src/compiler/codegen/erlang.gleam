@@ -512,17 +512,13 @@ fn function_form(
   let #(parameters, context) =
     parameters(function.parameters, Context(..context, locals: dict.new()))
   use #(body, context) <- result.try(block(function.body, context))
-  let #(returned, context) = fresh(context, line)
+  let #(body, context) = return_boundary(body, line, context, function.body)
   Ok(#(
     f.node("function", line, [
       f.Atom(function.name.name),
       f.Integer(list.length(parameters)),
       f.Sequence([
-        f.clause(
-          parameters,
-          [return_boundary(body, line, returned, function.body)],
-          line,
-        ),
+        f.clause(parameters, [body], line),
       ]),
     ]),
     Context(..context, locals: outer),
@@ -847,17 +843,9 @@ fn expression(
       let #(captures, context) = actor_captures(context, line)
       let #(args, context) = parameters(args, context)
       use #(body, context) <- result.try(block(source_body, context))
-      let #(returned, context) = fresh(context, line)
+      let #(body, context) = return_boundary(body, line, context, source_body)
       Ok(#(
-        sequence(
-          captures,
-          anonymous(
-            args,
-            [return_boundary(body, line, returned, source_body)],
-            line,
-          ),
-          line,
-        ),
+        sequence(captures, anonymous(args, [body], line), line),
         Context(
           ..context,
           locals: outer,
@@ -1660,29 +1648,35 @@ fn runtime(
 fn return_boundary(
   body: List(f.Term),
   line: Int,
-  value: f.Term,
+  context: Context,
   source: ast.Block,
-) -> f.Term {
+) -> #(f.Term, Context) {
+  let #(returned, context) = fresh(context, line)
   case propagation.block(source) {
-    False -> f.node("block", line, [f.Sequence(body)])
+    False -> #(f.node("block", line, [f.Sequence(body)]), context)
     True ->
-      case propagation.lower(body) {
-        Some(body) -> f.node("block", line, [f.Sequence(body)])
-        None ->
+      case propagation.lower(body, context.next) {
+        Some(#(body, next)) -> #(
+          f.node("block", line, [f.Sequence(body)]),
+          Context(..context, next:),
+        )
+        None -> #(
           f.node("try", line, [
             f.Sequence(body),
             f.Sequence([]),
             f.Sequence([
               catch_clause(
                 f.node("tuple", line, [
-                  f.Sequence([f.atom("pooka_return", line), value]),
+                  f.Sequence([f.atom("pooka_return", line), returned]),
                 ]),
-                [value],
+                [returned],
                 line,
               ),
             ]),
             f.Sequence([]),
-          ])
+          ]),
+          context,
+        )
       }
   }
 }
@@ -3033,7 +3027,8 @@ fn class_forms(
           let context = Context(..context, receiver: Some(receiver))
           let #(args, context) = parameters(method.parameters, context)
           use #(body, context) <- result.try(block(method.body, context))
-          let #(returned, context) = fresh(context, line)
+          let #(body, context) =
+            return_boundary(body, line, context, method.body)
 
           let name = case
             hierarchy && !string.starts_with(method.name.name, "_")
@@ -3046,11 +3041,7 @@ fn class_forms(
               f.Atom(name),
               f.Integer(list.length(args) + 1),
               f.Sequence([
-                f.clause(
-                  [receiver, ..args],
-                  [return_boundary(body, line, returned, method.body)],
-                  line,
-                ),
+                f.clause([receiver, ..args], [body], line),
               ]),
             ])
           Ok(#(list.append(acc.0, [form]), context))
@@ -3639,7 +3630,8 @@ fn actor_forms(
           let context = Context(..context, receiver: Some(receiver))
           let #(args, context) = parameters(method.parameters, context)
           use #(body, context) <- result.try(block(method.body, context))
-          let #(returned, context) = fresh(context, line)
+          let #(body, context) =
+            return_boundary(body, line, context, method.body)
           let check_owner =
             f.remote("pooka_runtime_ffi", "actor_owner", [receiver], line)
           let implementation =
@@ -3651,7 +3643,7 @@ fn actor_forms(
                   [receiver, ..args],
                   [
                     check_owner,
-                    return_boundary(body, line, returned, method.body),
+                    body,
                   ],
                   line,
                 ),
